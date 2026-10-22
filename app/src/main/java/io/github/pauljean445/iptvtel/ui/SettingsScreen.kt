@@ -36,6 +36,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -75,6 +77,20 @@ fun SettingsScreen(model: AppModel) {
                 Section("Profils", "Un profil par personne du foyer : chacun a ses favoris, ses lectures en cours et ses langues. " +
                     "Les profils sont partagés avec le PC et la TV.") {
                     AppButton("Nouveau profil", { editing = null to null }, icon = Icons.Filled.PersonAdd)
+                }
+            }
+            if (model.profiles.size > 1) item {
+                Row(Modifier.fillMaxWidth().background(C.surface, RoundedCornerShape(14.dp))
+                    .border(1.dp, C.line, RoundedCornerShape(14.dp)).clickable { model.setAskProfile(!model.askProfile) }
+                    .padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Demander « Qui regarde ? » au démarrage", color = C.text, fontSize = 15.sp)
+                        Text(if (model.askProfile) "Le choix du profil s'affiche à chaque ouverture de l'appli."
+                            else "Le dernier profil choisi s'ouvre directement.", color = C.muted, fontSize = 12.sp)
+                    }
+                    Switch(checked = model.askProfile, onCheckedChange = { model.setAskProfile(it) },
+                        colors = SwitchDefaults.colors(checkedThumbColor = androidx.compose.ui.graphics.Color.White, checkedTrackColor = C.accent,
+                        uncheckedThumbColor = C.text, uncheckedTrackColor = C.surface2, uncheckedBorderColor = C.muted))
                 }
             }
             items(model.profiles, key = { it["id"].str() }) { p ->

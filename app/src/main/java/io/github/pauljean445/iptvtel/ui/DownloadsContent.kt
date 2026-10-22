@@ -135,6 +135,7 @@ fun DownloadsContent(model: AppModel) {
         if (done.isNotEmpty()) {
             item { RowTitle("Sur le téléphone", "${done.size}", Modifier.padding(top = 10.dp)) }
             items(done, key = { it.id }) { j ->
+                @Suppress("UNUSED_VARIABLE") val v = model.libVersion
                 val pos = model.library.position(j.key)
                 val len = model.library.length(j.key)
                 JobRow(j, subtitle = listOf(fmtSize(j.total.takeIf { it > 0 } ?: j.done),

@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.LiveTv
@@ -130,6 +131,7 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
     var pausedAt by remember { mutableLongStateOf(0L) }       // direct : début de la pause en cours
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
     var seekFlash by remember { mutableStateOf("") }          // « -10 s » / « +10 s » affiché un instant
+    var castPicker by remember { mutableStateOf(false) }
 
     val isReplay = current.kind == "program"
     val isLive = current.kind == "live"
@@ -230,10 +232,16 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
         // Plein écran en paysage, barres d'Android masquées (un glissement depuis le bord les fait revenir)
         val activity = context as Activity
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        // Image jusque dans la zone de l'encoche de la caméra (paysage)
+        val cutout = activity.window.attributes.layoutInDisplayCutoutMode
+        activity.window.attributes = activity.window.attributes.apply {
+            layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
         val bars = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         bars.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
+            activity.window.attributes = activity.window.attributes.apply { layoutInDisplayCutoutMode = cutout }
             save()
             player.removeListener(listener)
             player.release()
@@ -259,6 +267,15 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
         if (nextCountdown > 0) { delay(1000); nextCountdown-- }
         else if (nextCountdown == 0) nextItem()?.let { n ->
             play(n, if (n.kind in RESUMABLE) lib.resumePosition(n.key) else 0)
+        }
+    }
+    // Plein écran réappliqué : après la rotation et à chaque apparition des commandes (Android peut remettre la
+    // barre d'état, qui gênait les boutons du haut)
+    LaunchedEffect(overlay, tracksPanel, castPicker) {
+        val activity = context as Activity
+        repeat(2) {
+            WindowCompat.getInsetsController(activity.window, activity.window.decorView).hide(WindowInsetsCompat.Type.systemBars())
+            delay(400)
         }
     }
     LaunchedEffect(seekFlash) { if (seekFlash.isNotEmpty()) { delay(700); seekFlash = "" } }
@@ -341,6 +358,9 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
                     }
                     if (isLive && (liveDelayMs > 1000 || pausedAt > 0)) AppButton("Revenir au direct", { play(current, 0) },
                         icon = Icons.Filled.LiveTv, modifier = Modifier.padding(end = 8.dp))
+                    if (io.github.pauljean445.iptvtel.cast.Caster.available) IconButton({ castPicker = true; lastTouch = System.currentTimeMillis() }) {
+                        Icon(Icons.Filled.Cast, "Diffuser sur un appareil Cast", tint = Color.White)
+                    }
                     IconButton({ tracksPanel = true; lastTouch = System.currentTimeMillis() }) {
                         Icon(Icons.Filled.Subtitles, "Langue et sous-titres", tint = Color.White)
                     }
@@ -382,6 +402,13 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
             }
         }
     }
+
+    if (castPicker) io.github.pauljean445.iptvtel.ui.CastPicker(onPick = { route ->
+        castPicker = false
+        save()
+        player.pause()
+        model.startCast(route, current, list, if (current.kind in RESUMABLE) pos else 0)
+    }, onDismiss = { castPicker = false; lastTouch = System.currentTimeMillis() })
 
     if (tracksPanel) TracksSheet(tracks, onPick = { kind, track ->
         Track.select(player, kind, track?.id ?: -1)

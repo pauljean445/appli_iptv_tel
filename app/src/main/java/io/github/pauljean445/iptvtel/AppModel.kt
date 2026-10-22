@@ -21,6 +21,7 @@ import io.github.pauljean445.iptvtel.data.Sync
 import io.github.pauljean445.iptvtel.data.XtreamClient
 import io.github.pauljean445.iptvtel.data.now
 import io.github.pauljean445.iptvtel.data.str
+import io.github.pauljean445.iptvtel.cast.Caster
 import io.github.pauljean445.iptvtel.download.Downloads
 import io.github.pauljean445.iptvtel.update.Updater
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +43,7 @@ sealed class Screen {
     data class Details(val item: Item) : Screen()
     data class Programs(val channel: Item) : Screen()
     data class Player(val item: Item, val list: List<Item>, val resume: Boolean) : Screen()
+    object Cast : Screen()  // télécommande de la diffusion Google Cast
 }
 
 /** Catalogue du profil : entrées par onglet et catégories dans l'ordre du fournisseur. */
@@ -161,6 +163,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun libraryChanged() { libVersion++ }
 
+    /** « Qui regarde ? » au démarrage quand il y a plusieurs profils (réglage de l'appareil, comme ask_profile du PC) ;
+     *  sinon le dernier profil choisi s'ouvre directement. */
+    val askProfile: Boolean get() = settings["ask_profile"] != false
+
+    fun setAskProfile(on: Boolean) {
+        settings["ask_profile"] = on
+        store.saveSettings(settings)
+        settings = LinkedHashMap(settings)
+    }
+
     // ---- Téléchargements -------------------------------------------------------------------- //
     /** Fichier du téléphone pour ce film / cet épisode, s'il a été téléchargé. */
     fun localUri(key: String): String? = Downloads.local(key)?.uri
@@ -174,6 +186,56 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- Diffusion Google Cast ------------------------------------------------------------- //
+    /** Lance item sur l'appareil Cast choisi (à startMs) et ouvre la télécommande à la place du lecteur. */
+    fun startCast(target: io.github.pauljean445.iptvtel.cast.CastTarget, item: Item, list: List<Item>, startMs: Long) {
+        if (screen is Screen.Player) back()
+        Caster.cast(target, item, castUrl(item), startMs, list)
+        open(Screen.Cast)
+    }
+
+    /** Adresse lue par VLC : un fichier téléchargé est lu depuis le téléphone (pas de réseau IPTV). */
+    private fun castUrl(item: Item): String = localUri(item.key) ?: item.url
+
+    private fun resumable(it: Item) = it.kind == "movie" || it.kind == "episode"
+
+    private fun saveCastProgress(finished: Boolean = false) {
+        val it = Caster.item ?: return
+        if (!resumable(it) || !::library.isInitialized || (Caster.pos <= 0 && !finished)) return
+        saveProgress(it, if (finished) maxOf(Caster.pos, Caster.len) else Caster.pos, Caster.len,
+            finished || Library.isFinished(Caster.pos, Caster.len))
+    }
+
+    /** Entrée suivante de la diffusion : épisode suivant, programme suivant, chaîne suivante. */
+    fun castNextItem(step: Int = 1): Item? {
+        val cur = Caster.item ?: return null
+        val list = Caster.list
+        return when (cur.kind) {
+            "episode" -> if (step > 0) list.getOrNull(list.indexOfFirst { it.key == cur.key } + 1) else null
+            "program" -> list.filter { it.start > cur.start }.minByOrNull { it.start }
+            "live" -> list.indexOfFirst { it.key == cur.key }.takeIf { it >= 0 && list.size > 1 }
+                ?.let { list[(it + step + list.size) % list.size] }
+            else -> null
+        }
+    }
+
+    fun castStep(step: Int) {
+        saveCastProgress()
+        val n = castNextItem(step) ?: return
+        Caster.load(n, castUrl(n), if (resumable(n)) library.resumePosition(n.key) else 0)
+    }
+
+    private fun castFinished() {
+        saveCastProgress(finished = true)
+        if (Caster.item?.kind == "episode" || Caster.item?.kind == "program") castStep(1)
+    }
+
+    fun stopCast() {
+        saveCastProgress()
+        Caster.stop()
+        if (screen is Screen.Cast) back()
+    }
+
     // ---- Démarrage ----------------------------------------------------------------------- //
     private var launched = false
 
@@ -183,6 +245,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         launched = true
         Downloads.init(getApplication())
         Downloads.resume(getApplication())  // file interrompue (appli ou téléphone redémarré)
+        Caster.init(getApplication())
+        Caster.onFinished = { castFinished() }
+        // Langue / sous-titres mémorisés (film ou toute la série), comme en lecture sur le téléphone
+        Caster.prefsFor = { if (::library.isInitialized) library.pref(if (it.kind == "episode") it.parent?.key ?: it.key else it.key) else null }
+        viewModelScope.launch {  // diffusion : position enregistrée toutes les 10 s (reprise synchronisée)
+            while (isActive) { delay(10_000); saveCastProgress() }
+        }
         start()
     }
 
@@ -196,7 +265,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (settings["sync_uid"].str() == cloud.uid) {
             // Déjà synchronisé avec ce compte : ouverture immédiate (aussi sans réseau : téléchargements) ; la liste
             // des profils est mise à jour par le premier passage de synchro (et une session refusée y est détectée)
-            if (profiles.size > 1) replace(Screen.Profiles) else openProfile(settings["profile"].str())
+            if (profiles.size > 1 && askProfile) replace(Screen.Profiles) else openProfile(settings["profile"].str())
             return
         }
         replace(Screen.Loading)
@@ -212,7 +281,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
             if (lost != null) { cloud.signOut(); start("Reconnexion nécessaire : $lost."); return@launch }
             settings = store.loadSettings()
-            if (profiles.size > 1) replace(Screen.Profiles) else openProfile(settings["profile"].str())
+            if (profiles.size > 1 && askProfile) replace(Screen.Profiles) else openProfile(settings["profile"].str())
         }
     }
 

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.pauljean445.iptvtel.player.PlayerScreen
 import io.github.pauljean445.iptvtel.ui.C
+import io.github.pauljean445.iptvtel.ui.CastScreen
 import io.github.pauljean445.iptvtel.ui.DetailsScreen
 import io.github.pauljean445.iptvtel.ui.IptvTheme
 import io.github.pauljean445.iptvtel.ui.LoginScreen
@@ -60,6 +61,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openTab(intent: Intent?) {
+        // Notification de la diffusion : télécommande
+        if (intent?.getBooleanExtra(EXTRA_CAST, false) == true && io.github.pauljean445.iptvtel.cast.Caster.item != null) {
+            if (model.screen !is Screen.Cast && model.stack.any { it is Screen.Main }) { model.showTab(model.tab); model.open(Screen.Cast) }
+            return
+        }
         model.showTab(intent?.getStringExtra(EXTRA_TAB) ?: return)
     }
 
@@ -75,6 +81,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_TAB = "tab"
+        const val EXTRA_CAST = "cast"
     }
 }
 
@@ -96,6 +103,7 @@ fun App(model: AppModel, onQuit: () -> Unit) {
                 is Screen.Details -> DetailsScreen(model, s.item)
                 is Screen.Programs -> ProgramsScreen(model, s.channel)
                 is Screen.Player -> PlayerScreen(model, s.item, s.list, s.resume, onExit = { model.back() })
+                Screen.Cast -> CastScreen(model)
             }
         }
         // Mise à jour proposée : jamais par-dessus une lecture (attend le retour aux menus)

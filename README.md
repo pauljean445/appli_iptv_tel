@@ -4,7 +4,8 @@ Appli Android pour téléphone du lecteur IPTV, compagnon des applis PC (`app_ip
 même catalogue Xtream, mêmes profils, favoris, reprises de lecture, « Vu récemment », épisodes vus, langues et
 catégories masquées, synchronisés par le compte du foyer (Firebase). En plus de la TV : **téléchargement des films et
 épisodes** pour les regarder sans réseau.
-Kotlin + Jetpack Compose (Material 3) + Media3 (lecteur intégré d'Android) : APK d'environ 4,5 Mo.
+Kotlin + Jetpack Compose (Material 3) + Media3 (lecteur du téléphone) + libVLC (diffusion vers un appareil Cast,
+comme l'appli PC) : APK d'environ 49 Mo (VLC en ARM 64 bits ≈ 43 Mo ; 4,5 Mo en 1.0.0, sans diffusion).
 
 ## Organisation du projet
 ```
@@ -19,6 +20,7 @@ appli_iptv_tel/
    ├─ IptvApp.kt            chargeur d'images (cache disque limité à 40 Mo)
    ├─ data/                 copié de l'appli TV (mêmes formats) : Item, Xtream, Playlist, CatalogCache, Store,
    │                        Library, Cloud (Firebase REST), Sync (fusion), Vault (chiffrement de la source IPTV)
+   ├─ cast/                 Caster (diffusion VLC vers Chromecast / TV « Chromecast intégré »), CastService
    ├─ download/             Downloads (file, téléchargement par morceaux), DownloadService (notification)
    ├─ player/               PlayerScreen (lecteur Media3 plein écran), Tracks (langues et sous-titres)
    ├─ ui/                   écrans : connexion, « Qui regarde ? », accueil, onglets, fiche, replays, recherche,
@@ -90,7 +92,27 @@ l'appli passe en arrière-plan. Sans réseau, l'appli s'ouvre quand même (catal
   épisode téléchargé est lu depuis le téléphone partout dans l'appli (sans réseau, sans occuper de connexion) et sa
   reprise de lecture est synchronisée comme en streaming.
 
+## Diffusion (Cast) — hors de chez soi
+Chez soi, l'appli TV fait mieux ; la diffusion sert sur le Chromecast / la TV d'un autre (même Wi-Fi que le téléphone).
+- Lecteur : icône Cast en haut → liste des appareils (recherche mDNS `_googlecast._tcp` par Android). La lecture passe
+  sur l'appareil à la même position ; le téléphone devient une télécommande (pause, ±10 s groupés, barre de temps,
+  chaîne ± , épisode suivant enchaîné, langue et sous-titres, arrêt). Bandeau « Sur … » au-dessus de la barre du bas,
+  notification (pause / arrêter) : le service garde téléphone et Wi-Fi éveillés écran éteint.
+- Comme `cast.py` du PC : VLC lit le flux sur le téléphone et l'envoie par son module Chromecast
+  (`:sout=#chromecast{ip,port}`, `:demux-filter=demux_chromecast`, `:no-sout-all`, `:sout-keep`) ; son converti en
+  AAC pour le direct / les replays (VLC convertit lui-même celui des films : le lecteur Cast de Google ne lit pas le
+  Dolby AC3 / E-AC3 des MKV) ; sous-titres choisis incrustés (image réencodée en H.264 720p) ; chaîne qui ne passe
+  pas : nouvel essai en « mode compatible » (image convertie).
+- **Autre film / épisode : nouvelle connexion** (l'appareil relance brièvement son lecteur, comme le PC). En gardant la
+  connexion, VLC envoie pendant le rechargement de l'appareil et l'épisode démarrait à 0:02 (mesuré). Langue et
+  zapping : connexion gardée (pas de relance). Position enregistrée toutes les 10 s (reprise synchronisée) ; un
+  fichier téléchargé est diffusé depuis le téléphone.
+- Essayés et abandonnés (22/10/2026) : Google Cast SDK seul (pas de son AC3, sauts lents) ; remplacer
+  `"streamType":"LIVE"` par `"NONE"` dans libvlc.so comme le PC (aucun effet sur le décalage) ; réserve de VLC réduite.
+
 ## Utilisation
+- Plusieurs profils : « Qui regarde ? » au démarrage, ou ouverture directe du dernier profil (interrupteur sur cette
+  page et dans Réglages → Profils ; réglage de l'appareil `ask_profile`, comme le PC).
 - Barre du bas : Accueil, Direct (« En direct » / « Replays »), Films, Séries, Téléchargés ; en haut la loupe
   (chaînes, films, séries) et l'avatar du profil (réglages : profils, catalogue, abonnement, compte, mise à jour).
 - Catégories en puces ; le bouton liste à gauche ouvre toutes les catégories. Appui long sur une catégorie : la

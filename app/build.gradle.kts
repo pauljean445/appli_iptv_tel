@@ -32,6 +32,8 @@ android {
         targetSdk = 35
         versionCode = appVersionCode  // version.properties
         versionName = appVersion
+        // VLC (diffusion) en ARM 64 bits seulement : tous les téléphones récents (le S25 FE de l'utilisateur)
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
 
     signingConfigs {
@@ -71,6 +73,7 @@ android {
     }
 }
 
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
@@ -91,4 +94,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    // Diffusion vers un Chromecast / une TV « Chromecast intégré » : VLC, comme l'appli PC (son converti à la volée,
+    // flux continu : la télé ne recharge rien à chaque déplacement). ~40 Mo : choix de l'utilisateur (réactivité)
+    implementation("org.videolan.android:libvlc-all:3.6.0")
 }

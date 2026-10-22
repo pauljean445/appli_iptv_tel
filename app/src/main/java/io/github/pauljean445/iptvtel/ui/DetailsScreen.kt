@@ -229,6 +229,7 @@ private fun DownloadState(j: DlJob) {
 @Composable
 private fun EpisodeRow(model: AppModel, ep: Item, job: DlJob?, onClick: () -> Unit, onLongClick: () -> Unit, onDownload: () -> Unit) {
     val lib = model.library
+    @Suppress("UNUSED_VARIABLE") val v = model.libVersion  // redessinée à chaque changement (vu, reprise)
     val pos = lib.resumePosition(ep.key)
     val len = lib.length(ep.key)
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)

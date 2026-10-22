@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,6 +45,15 @@ fun ProfilesScreen(model: AppModel) {
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
                 }
             }
+        }
+        // Se souvenir du choix : au prochain démarrage, le profil choisi s'ouvre directement (modifiable dans Réglages)
+        Row(Modifier.padding(top = 36.dp).clip(RoundedCornerShape(12.dp)).clickable { model.setAskProfile(!model.askProfile) }
+            .padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Switch(checked = !model.askProfile, onCheckedChange = { model.setAskProfile(!it) },
+                colors = SwitchDefaults.colors(checkedThumbColor = androidx.compose.ui.graphics.Color.White, checkedTrackColor = C.accent,
+                        uncheckedThumbColor = C.text, uncheckedTrackColor = C.surface2, uncheckedBorderColor = C.muted))
+            Text("Ouvrir directement ce profil la prochaine fois", color = C.muted, fontSize = 14.sp,
+                modifier = Modifier.padding(start = 12.dp))
         }
     }
 }

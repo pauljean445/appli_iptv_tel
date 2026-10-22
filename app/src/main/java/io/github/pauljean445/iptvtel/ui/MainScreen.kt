@@ -87,6 +87,8 @@ fun MainScreen(model: AppModel) {
             )
         },
         bottomBar = {
+            Column {
+            CastBar(model)
             NavigationBar(containerColor = C.panel) {
                 TABS.forEach { t ->
                     NavigationBarItem(
@@ -101,6 +103,7 @@ fun MainScreen(model: AppModel) {
                             indicatorColor = C.accent, unselectedIconColor = C.muted, unselectedTextColor = C.muted),
                     )
                 }
+            }
             }
         },
     ) { padding ->
@@ -141,6 +144,7 @@ fun HomeContent(model: AppModel) {
             HomeRow("Films", "en cours", movies.size,
                 empty = "Aucun film en cours. Les films commencés apparaîtront ici.") {
                 items(movies, key = { it.key }) { m ->
+                    @Suppress("UNUSED_VARIABLE") val v = model.libVersion
                     val pos = lib.position(m.key)
                     PosterTile(m, if (pos > 0) "Reprendre à ${fmtTime(pos)}" else "Commencé", Modifier.width(112.dp),
                         progress = lib.length(m.key).let { if (it > 0) pos.toFloat() / it else -1f },
@@ -152,6 +156,7 @@ fun HomeContent(model: AppModel) {
             HomeRow("Séries", "en cours", series.size,
                 empty = "Aucune série en cours. Les séries commencées apparaîtront ici.") {
                 items(series, key = { it.key }) { s ->
+                    @Suppress("UNUSED_VARIABLE") val v = model.libVersion
                     val e = lib.recent[s.key].asObj()
                     val last = e?.get("last_ep").str()
                     val label = e?.get("last_label").str()

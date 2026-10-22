@@ -149,6 +149,7 @@ fun BrowseContent(model: AppModel, mainTab: String) {
             LazyVerticalGrid(GridCells.Adaptive(104.dp), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(items, key = { it.key }) { it ->
+                    @Suppress("UNUSED_VARIABLE") val v = model.libVersion  // progression redessinée
                     val pos = if (tab == "movie") lib.resumePosition(it.key) else 0L
                     val len = if (tab == "movie") lib.length(it.key) else 0L
                     val sub = listOf(it.year, if (it.rating.isNotEmpty()) "★ ${it.rating}" else "").filter { s -> s.isNotEmpty() }.joinToString(" · ")
