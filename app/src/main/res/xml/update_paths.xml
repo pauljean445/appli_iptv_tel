@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- APK de mise à jour téléchargé (cache/updates), confié à l'installeur d'Android par FileProvider -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

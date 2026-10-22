@@ -1,0 +1,22 @@
+# Gradle / Android Studio (recréés à la compilation)
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+
+# Clé de signature : JAMAIS dans le dépôt (sauvegardée à part, voir README)
+*.jks
+*.keystore
+keystore.properties
+
+# Divers
+*.log
+.vscode/
+Thumbs.db
+desktop.ini
+
+# APK publiés (recréés par build_release.bat)
+dist/
