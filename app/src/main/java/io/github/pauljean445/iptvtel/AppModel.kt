@@ -89,7 +89,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- Profil en cours --------------------------------------------------------------- //
-    var settings: Obj by mutableStateOf(LinkedHashMap())
+    // neverEqualPolicy : les réglages sont souvent modifiés sur place puis recopiés ; comparés par contenu, la copie
+    // était « égale » et rien ne se redessinait (interrupteur « Qui regarde ? » resté sur Off)
+    var settings: Obj by mutableStateOf(LinkedHashMap(), androidx.compose.runtime.neverEqualPolicy())
     var profileId by mutableStateOf("")
     lateinit var library: Library
     /** Change à chaque modification des favoris / reprises : les écrans qui le lisent se redessinent. */
@@ -169,8 +171,23 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun setAskProfile(on: Boolean) {
         settings["ask_profile"] = on
+        if (!on && profileId.isNotEmpty()) settings["start_profile"] = profileId  // depuis les Réglages : le profil en cours
         store.saveSettings(settings)
         settings = LinkedHashMap(settings)
+    }
+
+    /** Profil ouvert au démarrage sans « Qui regarde ? » : celui choisi avec l'interrupteur (même si on a changé de
+     *  profil ensuite dans l'appli), sinon le dernier utilisé. Comme start_profile du PC. */
+    private val startProfile: String
+        get() = settings["start_profile"].str().takeIf { id -> profiles.any { it["id"] == id } } ?: settings["profile"].str()
+
+    /** Choix sur « Qui regarde ? » : avec l'interrupteur activé, ce profil devient celui du démarrage. */
+    fun chooseProfile(pid: String) {
+        if (!askProfile) {
+            settings["start_profile"] = pid
+            store.saveSettings(settings)
+        }
+        openProfile(pid)
     }
 
     // ---- Téléchargements -------------------------------------------------------------------- //
@@ -265,7 +282,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (settings["sync_uid"].str() == cloud.uid) {
             // Déjà synchronisé avec ce compte : ouverture immédiate (aussi sans réseau : téléchargements) ; la liste
             // des profils est mise à jour par le premier passage de synchro (et une session refusée y est détectée)
-            if (profiles.size > 1 && askProfile) replace(Screen.Profiles) else openProfile(settings["profile"].str())
+            if (profiles.size > 1 && askProfile) replace(Screen.Profiles) else openProfile(startProfile)
             return
         }
         replace(Screen.Loading)
@@ -281,7 +298,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             }
             if (lost != null) { cloud.signOut(); start("Reconnexion nécessaire : $lost."); return@launch }
             settings = store.loadSettings()
-            if (profiles.size > 1 && askProfile) replace(Screen.Profiles) else openProfile(settings["profile"].str())
+            if (profiles.size > 1 && askProfile) replace(Screen.Profiles) else openProfile(startProfile)
         }
     }
 

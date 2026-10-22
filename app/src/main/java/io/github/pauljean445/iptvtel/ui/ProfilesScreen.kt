@@ -38,7 +38,7 @@ fun ProfilesScreen(model: AppModel) {
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             for (p in model.profiles) {
                 val id = p["id"].str()
-                Column(Modifier.width(110.dp).clip(RoundedCornerShape(16.dp)).clickable { model.openProfile(id) }.padding(8.dp),
+                Column(Modifier.width(110.dp).clip(RoundedCornerShape(16.dp)).clickable { model.chooseProfile(id) }.padding(8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Avatar(p["name"].str(), p["color"].str(), 88.dp)
                     Text(p["name"].str(), color = C.text, fontSize = 16.sp, textAlign = TextAlign.Center, maxLines = 1,
