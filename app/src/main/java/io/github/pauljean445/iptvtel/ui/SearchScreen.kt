@@ -63,7 +63,7 @@ fun SearchScreen(model: AppModel) {
             catalog.byTab["movie"].orEmpty().filter { q in it.norm }.take(300),
             catalog.byTab["series"].orEmpty().filter { q in it.norm }.take(300))
     }
-    fun sub(it: Item) = listOf(ImdbBase.yearOf(it), ImdbBase.shortRating(it), if (it.kind == "movie") ImdbBase.runtimeText(it) else "")
+    fun sub(it: Item) = listOf(ImdbBase.tileText(it))
         .filter { s -> s.isNotEmpty() }.joinToString(" · ").ifEmpty { it.groupLabel }
 
     Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().imePadding()) {

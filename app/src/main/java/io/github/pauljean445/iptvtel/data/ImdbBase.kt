@@ -101,6 +101,11 @@ object ImdbBase {
         if (it.imdbYear > 0) it.imdbYear.toString()
         else it.year.ifEmpty { YEAR_END.find(it.name)?.groupValues?.get(1).orEmpty() }
 
+    /** Texte sous une vignette : film « année · ★ note · durée », série « ★ note » seulement. */
+    fun tileText(it: Item): String =
+        (if (it.kind == "movie") listOf(yearOf(it), shortRating(it), runtimeText(it)) else listOf(shortRating(it)))
+            .filter { s -> s.isNotEmpty() }.joinToString(" · ")
+
     /** Mosaïques et listes : « ★ 4.7 » (la mention IMDb est sur la fiche). */
     fun shortRating(it: Item) = if (it.imdbRating.isNotEmpty()) "★ ${it.imdbRating}" else ""
 
