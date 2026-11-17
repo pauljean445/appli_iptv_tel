@@ -24,7 +24,8 @@ object ImdbBase {
 
     fun init(dir: File) {
         if (file != null) return
-        val f = File(dir, "imdb_base.json")
+        File(dir, "imdb_base.json").delete()  // ancienne copie (base rangée dans le foyer, abandonnée le 17/11/2026)
+        val f = File(dir, "imdb_base2.json")
         file = f
         reqFile = File(dir, "imdb_req.json")
         try { readObj(f).forEach { (k, v) -> if (v is String) entries[k] = v } } catch (e: Exception) { }
@@ -44,10 +45,18 @@ object ImdbBase {
      *  qui n'y sont pas. true si des notes ont changé. */
     fun pull(cloud: Cloud, catalogKeys: Collection<String>): Boolean {
         var changed = false
+        // Copie locale = miroir exact de la base commune (lue en entier ; sinon on garde l'ancienne copie)
+        val fresh = HashMap<String, String>()
+        var complete = true
         for (i in 0 until SHARDS) {
             // base commune pas encore lisible (règle) ou hors ligne : on inscrit quand même les titres
-            val doc = try { cloud.getRootDoc("imdb/s%02d".format(i)) } catch (e: Exception) { break } ?: continue
-            for ((k, v) in doc) if (v is String && entries[k] != v) { entries[k] = v; changed = true }
+            val doc = try { cloud.getRootDoc("imdb/s%02d".format(i)) } catch (e: Exception) { complete = false; break } ?: continue
+            for ((k, v) in doc) if (v is String) fresh[k] = v
+        }
+        if (complete && fresh != HashMap(entries)) {
+            entries.clear()
+            entries.putAll(fresh)
+            changed = true
         }
         lastPull = System.currentTimeMillis()
         if (changed) file?.let { f -> try { writeObj(f, LinkedHashMap<String, Any?>(entries)) } catch (e: Exception) { } }
