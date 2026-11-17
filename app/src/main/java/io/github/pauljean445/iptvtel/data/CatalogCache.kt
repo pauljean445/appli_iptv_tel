@@ -11,7 +11,7 @@ import java.util.zip.GZIPOutputStream
  */
 object CatalogCache {
     const val FILE = "catalog.json.gz"
-    private const val VERSION = 1
+    private const val VERSION = 2  // 2 : numéro TMDB (base IMDb commune)
     private val KINDS = listOf("live", "movie", "series")
 
     fun save(folder: File, source: Source, signature: String, items: List<Item>) {
@@ -19,7 +19,7 @@ object CatalogCache {
         val rows = items.filter { it.kind in KINDS }.map {
             val g = groups.getOrPut(it.group) { groups.size }
             listOf(KINDS.indexOf(it.kind), it.name, g, it.logo, it.streamId, it.ext, it.tvgId, it.archiveDays,
-                it.rating, it.year, it.plot, it.genre, it.cast, it.director)
+                it.rating, it.year, it.plot, it.genre, it.cast, it.director, it.tmdb)
         }
         val data = mapOf("v" to VERSION, "source" to source.id, "sig" to signature,
             "groups" to groups.keys.toList(), "rows" to rows)
@@ -49,6 +49,7 @@ object CatalogCache {
                     name = row[1].str(), group = groups[row[2].int()], logo = row[3].str(), streamId = sid, ext = ext,
                     tvgId = row[6].str(), archiveDays = row[7].int(), rating = row[8].str(), year = row[9].str(),
                     plot = row[10].str(), genre = row[11].str(), cast = row[12].str(), director = row[13].str(),
+                    tmdb = row.getOrNull(14).str(),
                     kind = kind, key = "x:$kind:$sid",
                     url = when (kind) { "live" -> client.liveUrl(sid); "movie" -> client.movieUrl(sid, ext); else -> "" },
                 )

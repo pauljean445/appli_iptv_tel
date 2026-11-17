@@ -89,10 +89,26 @@ import io.github.pauljean445.iptvtel.ui.AppButton
 import io.github.pauljean445.iptvtel.ui.C
 import io.github.pauljean445.iptvtel.ui.fmtTime
 import kotlinx.coroutines.delay
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.drawable.Icon as AIcon
+import android.os.Build
+import android.util.Rational
+import android.view.WindowManager
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 private val RESUMABLE = setOf("movie", "episode")
 private const val MAX_RETRIES = 5
 private const val EARLY_END_MS = 120_000L
+private const val ACTION_PIP = "io.github.pauljean445.iptvtel.PIP_PLAY_PAUSE"
 
 /**
  * Lecteur plein écran (Media3), en paysage. Toucher : affiche / masque les commandes ; double toucher à gauche /
@@ -231,6 +247,7 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
         play(start, startMs)
         // Plein écran en paysage, barres d'Android masquées (un glissement depuis le bord les fait revenir)
         val activity = context as Activity
+        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         // Image jusque dans la zone de l'encoche de la caméra (paysage)
         val cutout = activity.window.attributes.layoutInDisplayCutoutMode
@@ -241,6 +258,11 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
         bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         bars.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            // Plus de lecture : quitter l'appli ne doit plus ouvrir la petite fenêtre
+            if (Build.VERSION.SDK_INT >= 31) try {
+                activity.setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())
+            } catch (e: Exception) { }
             activity.window.attributes = activity.window.attributes.apply { layoutInDisplayCutoutMode = cutout }
             save()
             player.removeListener(listener)
@@ -248,6 +270,45 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
             bars.show(WindowInsetsCompat.Type.systemBars())
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+
+    var videoRatio by remember { mutableStateOf(Rational(16, 9)) }
+    DisposableEffect(Unit) {
+        val l = object : Player.Listener {
+            override fun onVideoSizeChanged(v: androidx.media3.common.VideoSize) {
+                if (v.width > 0 && v.height > 0) {
+                    val w = (v.width * v.pixelWidthHeightRatio).toInt().coerceAtLeast(1)
+                    // Android refuse les proportions hors de 1:2,39 à 2,39:1
+                    videoRatio = Rational(w, v.height).let { r ->
+                        when { r.toFloat() > 2.39f -> Rational(239, 100); r.toFloat() < 1 / 2.39f -> Rational(100, 239); else -> r }
+                    }
+                }
+            }
+        }
+        player.addListener(l)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) { togglePauseFromPip(player) }
+        }
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(ACTION_PIP), ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { player.removeListener(l); context.unregisterReceiver(receiver) }
+    }
+    LaunchedEffect(playing, videoRatio, error) {
+        val activity = context as Activity
+        val icon = AIcon.createWithResource(context, if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+        val pi = PendingIntent.getBroadcast(context, 7, Intent(ACTION_PIP).setPackage(context.packageName),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val b = PictureInPictureParams.Builder().setAspectRatio(videoRatio)
+            .setActions(listOf(RemoteAction(icon, if (playing) "Pause" else "Lecture", if (playing) "Pause" else "Lecture", pi)))
+        // Android 12+ : la petite fenêtre s'ouvre toute seule en quittant l'appli pendant une lecture
+        if (Build.VERSION.SDK_INT >= 31) b.setAutoEnterEnabled(error.isEmpty()).setSeamlessResizeEnabled(true)
+        try { activity.setPictureInPictureParams(b.build()) } catch (e: Exception) { }
+    }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        // Arrière-plan sans petite fenêtre, écran verrouillé, ou petite fenêtre fermée : pause (position gardée)
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) { player.pause(); save() } }
+        lifecycle.addObserver(obs)
+        onDispose { lifecycle.removeObserver(obs) }
     }
 
     // Position, sauvegarde toutes les 10 s, masquage des commandes après 4 s sans toucher l'écran
@@ -306,6 +367,21 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
     fun togglePause() { if (player.isPlaying) player.pause() else { if (player.playbackState == Player.STATE_IDLE) player.prepare(); player.play() } }
     val step = if (isReplay) 60_000L else 10_000L
 
+    if (model.inPip) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            AndroidView(factory = { ctx ->
+                PlayerView(ctx).apply {
+                    useController = false
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                    this.player = player
+                }
+            }, modifier = Modifier.fillMaxSize())
+            if (buffering && error.isEmpty()) CircularProgressIndicator(color = C.accentHi, modifier = Modifier.align(Alignment.Center))
+        }
+        return
+    }
     Box(Modifier.fillMaxSize().background(Color.Black)
         .pointerInput(isLive, isReplay) {
             detectTapGestures(
@@ -417,6 +493,11 @@ fun PlayerScreen(model: AppModel, start: Item, list: List<Item>, resume: Boolean
 }
 
 private fun isReplayItem(it: Item) = it.kind == "program"
+
+/** Bouton lecture / pause de la petite fenêtre. */
+private fun togglePauseFromPip(player: ExoPlayer) {
+    if (player.isPlaying) player.pause() else { if (player.playbackState == Player.STATE_IDLE) player.prepare(); player.play() }
+}
 
 private fun describe(e: PlaybackException): String = when (e.errorCode) {
     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->

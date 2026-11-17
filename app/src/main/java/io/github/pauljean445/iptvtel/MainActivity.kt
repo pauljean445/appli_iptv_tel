@@ -69,6 +69,18 @@ class MainActivity : ComponentActivity() {
         model.showTab(intent?.getStringExtra(EXTRA_TAB) ?: return)
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (android.os.Build.VERSION.SDK_INT < 31 && model.screen is Screen.Player && !model.inPip) {
+            try { enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().build()) } catch (e: Exception) { }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        model.inPip = isInPictureInPictureMode
+    }
+
     override fun onStart() {
         super.onStart()
         model.onAppShown()

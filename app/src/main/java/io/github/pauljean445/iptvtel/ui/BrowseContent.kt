@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.pauljean445.iptvtel.data.ImdbBase
 import io.github.pauljean445.iptvtel.AppModel
 import io.github.pauljean445.iptvtel.Screen
 import io.github.pauljean445.iptvtel.data.Item
@@ -152,7 +153,7 @@ fun BrowseContent(model: AppModel, mainTab: String) {
                     @Suppress("UNUSED_VARIABLE") val v = model.libVersion  // progression redessinée
                     val pos = if (tab == "movie") lib.resumePosition(it.key) else 0L
                     val len = if (tab == "movie") lib.length(it.key) else 0L
-                    val sub = listOf(it.year, if (it.rating.isNotEmpty()) "★ ${it.rating}" else "").filter { s -> s.isNotEmpty() }.joinToString(" · ")
+                    val sub = listOf(ImdbBase.yearOf(it), ImdbBase.shortRating(it), if (it.kind == "movie") ImdbBase.runtimeText(it) else "").filter { s -> s.isNotEmpty() }.joinToString(" · ")
                     PosterTile(it, sub, progress = if (pos > 0 && len > 0) pos.toFloat() / len else -1f,
                         onClick = { open(it) }, onLongClick = { actionsFor = it })
                 }

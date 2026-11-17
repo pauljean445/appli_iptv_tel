@@ -121,6 +121,13 @@ class Cloud(private val dir: File) {
     // ---- Documents du foyer (chemins relatifs à households/<uid>) ---------------- //
     private fun docName(path: String) = "$DOC_NAME/households/$uid" + if (path.isNotEmpty()) "/$path" else ""
 
+    /** Document hors des foyers (base commune des notes IMDb : imdb/sNN), champs décodés ; null s'il n'existe pas. */
+    fun getRootDoc(path: String, timeoutSec: Long = 15): Obj? {
+        val r = call("GET", "$DB_BASE/$DOC_NAME/$path", null, token(), timeoutSec = timeoutSec) ?: return null
+        val fields = r["fields"].asObj() ?: return LinkedHashMap()
+        return fields.mapValuesTo(LinkedHashMap()) { decode(it.value.asObj()!!) }
+    }
+
     /** Champs du document (décodés), null s'il n'existe pas. */
     fun getDoc(path: String, timeoutSec: Long = 15): Obj? {
         val r = call("GET", "$DB_BASE/${docName(path)}", null, token(), timeoutSec = timeoutSec) ?: return null

@@ -53,6 +53,7 @@ data class DlJob(
     val error: String = "",
     val parts: String = "",      // morceaux déjà téléchargés (« 0-5,7 »), voir Downloads.inParts
     val added: Double = System.currentTimeMillis() / 1000.0,
+    val showLogo: String = "",   // affiche de la série (épisode)
 ) {
     val active get() = state == "waiting" || state == "running"
     val progress get() = if (total > 0) done.toFloat() / total else 0f
@@ -66,14 +67,14 @@ data class DlJob(
     fun toObj(): Obj = linkedMapOf("id" to id, "title" to title, "url" to url, "folder" to folder, "file" to fileName,
         "mime" to mime, "key" to key, "kind" to kind, "name" to name, "logo" to logo, "show_key" to showKey,
         "show_name" to showName, "season" to season, "episode" to episode, "uri" to uri, "state" to state,
-        "done" to done, "total" to total, "error" to error, "parts" to parts, "added" to added)
+        "done" to done, "total" to total, "error" to error, "parts" to parts, "added" to added, "show_logo" to showLogo)
 
     companion object {
         fun of(o: Obj) = DlJob(o["id"].str(), o["title"].str(), o["url"].str(), o["folder"].str(), o["file"].str(),
             o["mime"].str(), o["key"].str(), o["kind"].str(), o["name"].str(), o["logo"].str(), o["show_key"].str(),
             o["show_name"].str(), o["season"].int(), o["episode"].int(), o["uri"].str(),
             o["state"].str().let { if (it == "running") "waiting" else it }, o["done"].num().toLong(),
-            o["total"].num().toLong(), 0, o["error"].str(), o["parts"].str(), o["added"].num())
+            o["total"].num().toLong(), 0, o["error"].str(), o["parts"].str(), o["added"].num(), o["show_logo"].str())
     }
 }
 
@@ -195,7 +196,8 @@ object Downloads {
             val label = episodeLabel(it)
             DlJob(UUID.randomUUID().toString(), "$title · $label", it.url,
                 "$ROOT/${safeName(title)}/Saison %02d".format(it.season), safeName("$title - ${label.replace(" · ", " - ")}") + ".$ext",
-                mime, it.key, "episode", it.name, it.logo.ifEmpty { show.logo }, show.key, show.name, it.season, it.episode)
+                mime, it.key, "episode", it.name, it.logo.ifEmpty { show.logo }, show.key, show.name, it.season, it.episode,
+                showLogo = show.logo)
         } else {
             val (title, y) = cleanTitle(it.name)
             val year = y.ifEmpty { it.year }
@@ -297,7 +299,10 @@ object Downloads {
         val count = ((total + PART - 1) / PART).toInt()
         fun size(i: Int) = minOf(PART, total - i * PART)
         val doneParts = java.util.Collections.synchronizedSet(HashSet(if (j.total == total) decodeParts(j.parts) else emptySet()))
-        val queue = java.util.ArrayDeque((0 until count).filter { it !in doneParts })
+        // File : (morceau, position où le reprendre). Le fournisseur coupe parfois une réponse avant la fin du
+        // morceau quand plusieurs connexions sont ouvertes (mesuré le 17/11/2026 : 3 sur 6) : le reste du morceau
+        // repart de là où il s'est arrêté, sans rien perdre (avant : morceau refait en entier, téléchargement bloqué à 0 %).
+        val queue = java.util.ArrayDeque((0 until count).filter { it !in doneParts }.map { it to it * PART })
         val received = java.util.concurrent.atomic.AtomicLong(doneParts.sumOf { size(it) })
         edit(id) { it.copy(total = total, done = received.get(), parts = encodeParts(doneParts)) }
         val fatal = java.util.concurrent.atomic.AtomicReference<Exception?>(null)
@@ -309,9 +314,8 @@ object Downloads {
                 var fails = 0
                 val buf = ByteArray(CHUNK)
                 while (fatal.get() == null && !isCancelled(id)) {
-                    val i = synchronized(queue) { queue.pollFirst() } ?: return
-                    val from = i * PART
-                    val to = from + size(i) - 1
+                    val (i, from) = synchronized(queue) { queue.pollFirst() } ?: return
+                    val to = i * PART + size(i) - 1
                     var got = 0L
                     try {
                         request(j.url, "bytes=$from-$to").use { r ->
@@ -332,12 +336,13 @@ object Downloads {
                                 }
                             }
                         }
-                        if (got != to - from + 1) throw Transient("morceau incomplet")
+                        if (got != to - from + 1) throw Transient("réponse coupée")
                         doneParts += i
                         fails = 0
                     } catch (e: Exception) {
-                        received.addAndGet(-got)  // morceau à refaire en entier
-                        synchronized(queue) { queue.addFirst(i) }
+                        // Ce qui est reçu est déjà écrit à sa place : le morceau reprend après
+                        synchronized(queue) { queue.addFirst(i to from + got) }
+                        if (e !is Cancelled) Log.i(TAG, "morceau $i : ${e.message ?: e.javaClass.simpleName} après ${got / 1024} Ko")
                         when {
                             e is Cancelled -> return
                             e is Transient || e is java.net.SocketTimeoutException -> lastError.set(e)
@@ -346,6 +351,7 @@ object Downloads {
                             e is IOException -> lastError.set(Transient("coupure (${e.message ?: e.javaClass.simpleName})"))
                             else -> { fatal.set(e); return }
                         }
+                        if (got > 0) { fails = 0; continue }  // la connexion fonctionne (réponse simplement coupée) : on enchaîne
                         if (++fails >= 3) return  // cette connexion abandonne, les autres continuent
                         Thread.sleep(2000L * fails)
                     }

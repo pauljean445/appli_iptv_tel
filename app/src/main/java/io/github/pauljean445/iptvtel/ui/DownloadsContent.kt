@@ -5,7 +5,16 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.background
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -77,16 +86,29 @@ fun rememberDownloader(model: AppModel): (List<Item>) -> Unit {
     }
 }
 
-/** Onglet Téléchargements : en cours, en attente, en erreur, puis les fichiers du téléphone (lecture sans réseau). */
+/** Nom de la série d'un épisode téléchargé (« Série · S01E02 · Titre » -> « Série »). */
+private fun showTitle(j: DlJob) = j.title.substringBefore(" · ")
+
+/** Affiche de la série (pas l'image d'un épisode) : gardée avec le téléchargement, sinon celle du catalogue. */
+private fun showImage(model: AppModel, j: DlJob) = Item(showTitle(j), kind = "series", key = j.showKey,
+    logo = j.showLogo.ifEmpty { model.catalog?.byKey?.get(j.showKey)?.logo.orEmpty() }.ifEmpty { j.logo })
+
+/**
+ * Onglet Téléchargements : en cours, en attente, en erreur, puis les fichiers du téléphone (lecture sans réseau).
+ * Filtre Tout / Films / Séries ; une série = une seule ligne (touchée : ses épisodes, par saison).
+ */
 @Composable
 fun DownloadsContent(model: AppModel) {
     val context = LocalContext.current
     val jobs by Downloads.jobs.collectAsState()
     @Suppress("UNUSED_VARIABLE") val v = model.libVersion
-    var deleting by remember { mutableStateOf<DlJob?>(null) }
-    val active = jobs.filter { it.active }
-    val failed = jobs.filter { it.state == "error" }
-    val done = jobs.filter { it.state == "done" }.sortedWith(compareBy({ it.title.substringBefore(" · ").lowercase() }, { it.season }, { it.episode }))
+    var deleting by remember { mutableStateOf<List<DlJob>?>(null) }
+    var filter by rememberSaveable { mutableStateOf("all") }        // all | movie | episode
+    var openShow by rememberSaveable { mutableStateOf<String?>(null) }  // série ouverte (show_key)
+    fun keep(j: DlJob) = filter == "all" || j.kind == filter
+    val active = jobs.filter { it.active && keep(it) }
+    val failed = jobs.filter { it.state == "error" && keep(it) }
+    val done = jobs.filter { it.state == "done" && keep(it) }.sortedWith(compareBy({ showTitle(it).lowercase() }, { it.season }, { it.episode }))
     val free = remember(done.size) { try { StatFs(Environment.getExternalStorageDirectory().path).availableBytes } catch (e: Exception) { 0L } }
 
     if (jobs.none { it.state != "cancelled" }) {
@@ -94,10 +116,66 @@ fun DownloadsContent(model: AppModel) {
             "le dossier Films/IPTV Player du téléphone et se regardent ici, même sans réseau.")
         return
     }
+    // Une série ouverte : ses épisodes téléchargés, par saison
+    openShow?.let { key ->
+        val eps = jobs.filter { it.state == "done" && it.kind == "episode" && it.showKey == key }
+            .sortedWith(compareBy({ it.season }, { it.episode }))
+        if (eps.isEmpty()) { openShow = null; return }
+        BackHandler { openShow = null }
+        LazyColumn(contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            item {
+                IconButton({ openShow = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour", tint = C.text) }
+                Row(Modifier.padding(start = 8.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(width = 72.dp, height = 108.dp).clip(RoundedCornerShape(8.dp))) {
+                        ItemImage(showImage(model, eps.first()), Modifier.width(72.dp).height(108.dp))
+                    }
+                    Column(Modifier.weight(1f).padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(showTitle(eps.first()), color = C.text, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val seasons = eps.map { it.season }.distinct().size
+                        Text("${eps.size} épisode${if (eps.size > 1) "s" else ""}" + (if (seasons > 1) " · $seasons saisons" else "") +
+                            " · ${fmtSize(eps.sumOf { sizeOf(it) })}", color = C.muted, fontSize = 13.sp)
+                        AppButton("Tout supprimer", { deleting = eps }, icon = Icons.Outlined.Delete)
+                    }
+                }
+            }
+            eps.groupBy { it.season }.forEach { (s, list) ->
+                item(key = "s$s") {
+                    // Bandeau de saison : bien visible entre deux saisons
+                    Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp)
+                        .clip(RoundedCornerShape(10.dp)).background(C.surface2)
+                        .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(width = 4.dp, height = 20.dp).clip(RoundedCornerShape(2.dp)).background(C.accentHi))
+                        Text("Saison $s", color = C.text, fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(start = 10.dp).weight(1f))
+                        Text("${list.size} épisode${if (list.size > 1) "s" else ""} · ${fmtSize(list.sumOf { sizeOf(it) })}",
+                            color = C.muted, fontSize = 12.sp)
+                    }
+                }
+                items(list, key = { it.id }) { j -> Box(Modifier.padding(start = 8.dp)) { DoneRow(model, j, onDelete = { deleting = listOf(j) }) } }
+            }
+        }
+        DeleteDialog(deleting) { deleting = null }
+        return
+    }
+
     LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
             Text("${fmtSize(Downloads.usedBytes())} utilisés · ${fmtSize(free)} libres · dossier Films/IPTV Player",
                 color = C.muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf("all" to "Tout", "movie" to "Films", "episode" to "Séries")) { (k, label) ->
+                    FilterChip(selected = filter == k, onClick = { filter = k }, label = { Text(label) },
+                        colors = FilterChipDefaults.filterChipColors(containerColor = C.surface, labelColor = C.muted,
+                            selectedContainerColor = C.accent, selectedLabelColor = Color.White),
+                        border = FilterChipDefaults.filterChipBorder(true, filter == k, borderColor = C.line, selectedBorderColor = C.accent))
+                }
+            }
+        }
+        if (active.isEmpty() && failed.isEmpty() && done.isEmpty()) item {
+            Text(if (filter == "movie") "Aucun film téléchargé." else "Aucune série téléchargée.", color = C.muted, fontSize = 14.sp,
+                modifier = Modifier.padding(top = 16.dp))
         }
         if (active.isNotEmpty()) {
             item {
@@ -133,39 +211,75 @@ fun DownloadsContent(model: AppModel) {
             }
         }
         if (done.isNotEmpty()) {
-            item { RowTitle("Sur le téléphone", "${done.size}", Modifier.padding(top = 10.dp)) }
-            items(done, key = { it.id }) { j ->
-                @Suppress("UNUSED_VARIABLE") val v = model.libVersion
-                val pos = model.library.position(j.key)
-                val len = model.library.length(j.key)
-                JobRow(j, subtitle = listOf(fmtSize(j.total.takeIf { it > 0 } ?: j.done),
-                    if (pos > 0) "reprendre à ${fmtTime(pos)}" else "").filter { it.isNotEmpty() }.joinToString(" · "),
-                    progress = if (pos > 0 && len > 0) pos.toFloat() / len else -1f, onClick = { playDownload(model, j) },
-                    onLongClick = { deleting = j }) {
-                    IconButton({ playDownload(model, j) }) { Icon(Icons.Filled.PlayArrow, "Lire", tint = C.accentHi) }
-                    IconButton({ deleting = j }) { Icon(Icons.Outlined.Delete, "Supprimer", tint = C.muted) }
-                }
+            // Films : une ligne chacun ; séries : une ligne par série (épisodes regroupés)
+            val entries = done.groupBy { if (it.kind == "episode") "show:" + it.showKey else it.id }.values.toList()
+            item { RowTitle("Sur le téléphone", "${entries.size}", Modifier.padding(top = 10.dp)) }
+            items(entries, key = { it.first().id }) { group ->
+                val j = group.first()
+                if (j.kind != "episode") DoneRow(model, j, onDelete = { deleting = listOf(j) })
+                else ShowRow(model, group, onOpen = { openShow = j.showKey }, onDelete = { deleting = group })
             }
         }
     }
-    deleting?.let { j ->
-        ConfirmDialog("Supprimer le fichier", "Supprimer « ${j.title} » du téléphone ? La reprise de lecture est conservée.",
-            "Supprimer", onOk = { Downloads.remove(j.id); deleting = null }, onDismiss = { deleting = null })
+    DeleteDialog(deleting) { deleting = null }
+}
+
+private fun sizeOf(j: DlJob) = j.total.takeIf { it > 0 } ?: j.done
+
+@Composable
+private fun DeleteDialog(list: List<DlJob>?, onClose: () -> Unit) {
+    val jobs = list ?: return
+    val what = if (jobs.size == 1) "« ${jobs[0].title} »" else "les ${jobs.size} épisodes de « ${showTitle(jobs[0])} »"
+    ConfirmDialog(if (jobs.size == 1) "Supprimer le fichier" else "Supprimer les fichiers",
+        "Supprimer $what du téléphone ? La reprise de lecture est conservée.",
+        "Supprimer", onOk = { jobs.forEach { Downloads.remove(it.id) }; onClose() }, onDismiss = onClose)
+}
+
+/** Film ou épisode téléchargé : lecture, suppression, reprise. */
+@Composable
+private fun DoneRow(model: AppModel, j: DlJob, onDelete: () -> Unit) {
+    @Suppress("UNUSED_VARIABLE") val v = model.libVersion
+    val pos = model.library.position(j.key)
+    val len = model.library.length(j.key)
+    JobRow(j, subtitle = listOf(fmtSize(sizeOf(j)), if (pos > 0) "reprendre à ${fmtTime(pos)}" else "")
+        .filter { it.isNotEmpty() }.joinToString(" · "),
+        progress = if (pos > 0 && len > 0) pos.toFloat() / len else -1f, onClick = { playDownload(model, j) },
+        onLongClick = onDelete, title = if (j.kind == "episode") j.title.substringAfter(" · ") else j.title) {
+        IconButton({ playDownload(model, j) }) { Icon(Icons.Filled.PlayArrow, "Lire", tint = C.accentHi) }
+        IconButton(onDelete) { Icon(Icons.Outlined.Delete, "Supprimer", tint = C.muted) }
+    }
+}
+
+/** Série téléchargée : une ligne (affiche, nombre d'épisodes) ; touchée : ses épisodes ; ▶ : reprise. */
+@Composable
+private fun ShowRow(model: AppModel, eps: List<DlJob>, onOpen: () -> Unit, onDelete: () -> Unit) {
+    @Suppress("UNUSED_VARIABLE") val v = model.libVersion
+    val first = eps.first()
+    // Épisode à lancer : un épisode commencé, sinon le premier non vu, sinon le premier
+    val next = eps.firstOrNull { model.library.position(it.key) > 0 }
+        ?: eps.firstOrNull { !model.library.isWatched(it.toItem()) } ?: first
+    val seasons = eps.map { it.season }.distinct().size
+    JobRow(first, subtitle = "${eps.size} épisode${if (eps.size > 1) "s" else ""}" +
+        (if (seasons > 1) " · $seasons saisons" else "") + " · ${fmtSize(eps.sumOf { sizeOf(it) })}",
+        progress = -1f, onClick = onOpen, onLongClick = onDelete, title = showTitle(first), image = showImage(model, first)) {
+        IconButton({ playDownload(model, next) }) { Icon(Icons.Filled.PlayArrow, "Lire", tint = C.accentHi) }
+        IconButton(onOpen) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Épisodes", tint = C.muted) }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun JobRow(j: DlJob, subtitle: String, progress: Float, error: Boolean = false, onClick: () -> Unit,
-                   onLongClick: (() -> Unit)? = null, actions: @Composable () -> Unit) {
+                   onLongClick: (() -> Unit)? = null, title: String = j.title, image: Item? = null,
+                   actions: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).combinedClickable(onClick = onClick, onLongClick = onLongClick)
         .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(width = 46.dp, height = 69.dp).clip(RoundedCornerShape(6.dp))) {
-            ItemImage(j.toItem(), Modifier.width(46.dp).height(69.dp))
+            ItemImage(image ?: j.toItem(), Modifier.width(46.dp).height(69.dp))
             if (progress >= 0f) ProgressBar(progress, Modifier.align(Alignment.BottomCenter))
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(j.title, color = C.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(title, color = C.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(subtitle, color = if (error) C.live else C.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         actions()

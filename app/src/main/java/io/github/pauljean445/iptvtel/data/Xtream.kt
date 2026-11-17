@@ -101,7 +101,7 @@ class XtreamClient(server: String, val username: String, val password: String, f
                 name = s["name"].str().trim(), url = movieUrl(sid, ext), ext = ext,
                 group = vodCats[s["category_id"].str()] ?: "", logo = s["stream_icon"].str(), kind = "movie",
                 key = "x:movie:$sid", streamId = sid, rating = rating(s["rating"]),
-                year = year(s["year"] ?: s["releasedate"]),
+                year = year(s["year"] ?: s["releasedate"]), tmdb = s["tmdb"].str(),
             )
         }
         for (s in sorted(series)) {
@@ -111,7 +111,7 @@ class XtreamClient(server: String, val username: String, val password: String, f
                 logo = s["cover"].str(), kind = "series", key = "x:series:$sid", streamId = sid,
                 plot = s["plot"].str(), rating = rating(s["rating"]), genre = s["genre"].str(),
                 year = year(s["releaseDate"] ?: s["release_date"]), cast = s["cast"].str(),
-                director = s["director"].str(),
+                director = s["director"].str(), tmdb = s["tmdb"].str(),
             )
         }
         if (items.isEmpty()) throw XtreamError("Le serveur n'a renvoyé aucune chaîne.")
@@ -119,8 +119,17 @@ class XtreamClient(server: String, val username: String, val password: String, f
     }
 
     // ---- Détails (à la demande) ------------------------------------------------ //
+    /**
+     * Fiche d'un film. Le fournisseur la prépare à la première demande : cette réponse-là est vide et la fiche complète
+     * arrive ~3 s plus tard (mesuré le 17/11/2026) ; on redemande donc quelques fois (thread d'arrière-plan).
+     */
     fun fillMovieInfo(it: Item) {
-        val info = api("get_vod_info", 30, mapOf("vod_id" to it.streamId)).asObj()?.get("info").asObj()
+        var info: Map<String, Any?>? = null
+        for (wait in listOf(0L, 2500L, 3000L, 4000L)) {
+            if (wait > 0) Thread.sleep(wait)
+            info = api("get_vod_info", 30, mapOf("vod_id" to it.streamId)).asObj()?.get("info").asObj()
+            if (info != null && info.values.any { v -> v != null && v.str().isNotEmpty() && v.str() != "0" }) break
+        }
         if (info != null) {
             it.plot = info["plot"].str().ifEmpty { info["description"].str() }.ifEmpty { it.plot }
             it.genre = info["genre"].str().ifEmpty { it.genre }
@@ -141,6 +150,10 @@ class XtreamClient(server: String, val username: String, val password: String, f
             if (show.genre.isEmpty()) show.genre = info["genre"].str()
             if (show.rating.isEmpty()) show.rating = rating(info["rating"])
             if (show.logo.isEmpty()) show.logo = info["cover"].str()
+            if (show.cast.isEmpty()) show.cast = info["cast"].str()
+            if (show.director.isEmpty()) show.director = info["director"].str()
+            if (show.year.isEmpty()) show.year = year(info["releaseDate"] ?: info["release_date"])
+            if (show.duration.isEmpty() && info["episode_run_time"].int() > 0) show.duration = "${info["episode_run_time"].int()} min par épisode"
         }
         val groups: Collection<Any?> = when (val raw = data["episodes"]) {
             is Map<*, *> -> raw.values
@@ -166,9 +179,9 @@ class XtreamClient(server: String, val username: String, val password: String, f
             }
         }
         episodes.sortWith(compareBy({ it.season }, { it.episode }))
-        show.episodes = episodes
+        show.episodes = episodes.distinctBy { it.key }  // jamais deux fois le même épisode (clé des listes)
         show.infoLoaded = true
-        return episodes
+        return show.episodes!!
     }
 
     /** Programmes passés de la chaîne disponibles en replay (du plus récent au plus ancien). */
@@ -201,7 +214,9 @@ class XtreamClient(server: String, val username: String, val password: String, f
             )
         }
         programs.sortByDescending { it.start }
-        return programs
+        // Le fournisseur renvoie parfois deux fois le même programme (même chaîne, même heure de début, vu le 17/11/2026) :
+        // une seule fois chacun, sinon les listes (clé = programme) plantent
+        return programs.distinctBy { it.key }
     }
 
     companion object {

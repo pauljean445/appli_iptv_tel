@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.pauljean445.iptvtel.data.ImdbBase
 import io.github.pauljean445.iptvtel.AppModel
 import io.github.pauljean445.iptvtel.Screen
 import io.github.pauljean445.iptvtel.data.Item
@@ -62,7 +63,7 @@ fun SearchScreen(model: AppModel) {
             catalog.byTab["movie"].orEmpty().filter { q in it.norm }.take(300),
             catalog.byTab["series"].orEmpty().filter { q in it.norm }.take(300))
     }
-    fun sub(it: Item) = listOf(it.year, if (it.rating.isNotEmpty()) "★ ${it.rating}" else "")
+    fun sub(it: Item) = listOf(ImdbBase.yearOf(it), ImdbBase.shortRating(it), if (it.kind == "movie") ImdbBase.runtimeText(it) else "")
         .filter { s -> s.isNotEmpty() }.joinToString(" · ").ifEmpty { it.groupLabel }
 
     Column(Modifier.fillMaxSize().background(C.bg).statusBarsPadding().imePadding()) {

@@ -58,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.pauljean445.iptvtel.data.ImdbBase
 import io.github.pauljean445.iptvtel.AppModel
 import io.github.pauljean445.iptvtel.Screen
 import io.github.pauljean445.iptvtel.data.Item
@@ -91,7 +92,10 @@ fun DetailsScreen(model: AppModel, item: Item) {
         }
         loaded++
     }
-    @Suppress("UNUSED_VARIABLE") val reload = loaded  // relu : la fiche se redessine à l'arrivée des détails
+    // Lu DANS chaque élément de la liste : Compose réutilise sinon l'élément tel quel (mêmes paramètres capturés),
+    // et ni l'étoile du favori ni le descriptif arrivé après coup ne s'affichent.
+    fun watch() = loaded + model.libVersion
+    @Suppress("UNUSED_VARIABLE") val reload = loaded  // ici aussi : la liste des épisodes arrivée ensuite est ajoutée
     var actionsFor by remember { mutableStateOf<Item?>(null) }
     var downloadMenu by remember { mutableStateOf(false) }
     var plotOpen by remember { mutableStateOf(false) }
@@ -106,6 +110,7 @@ fun DetailsScreen(model: AppModel, item: Item) {
 
     LazyColumn(Modifier.fillMaxSize().background(C.bg), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
+            watch()  // relit l'état ici (voir watch)
             Box(Modifier.fillMaxWidth()) {
                 // En-tête : l'affiche floutée par l'assombrissement, puis l'affiche nette et le titre
                 ItemImage(item, Modifier.fillMaxWidth().height(250.dp))
@@ -117,7 +122,7 @@ fun DetailsScreen(model: AppModel, item: Item) {
                         Box(Modifier.size(width = 112.dp, height = 168.dp).clip(RoundedCornerShape(10.dp))) { ItemImage(item, Modifier.fillMaxSize()) }
                         Column(Modifier.weight(1f).padding(start = 14.dp, top = 4.dp)) {
                             Text(item.name, color = C.text, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                            val meta = listOf(item.year, if (item.rating.isNotEmpty()) "★ ${item.rating}" else "", item.duration)
+                            val meta = listOf(ImdbBase.yearOf(item), ImdbBase.ratingText(item), ImdbBase.runtimeText(item))
                                 .filter { it.isNotEmpty() }.joinToString("  ·  ")
                             if (meta.isNotEmpty()) Text(meta, color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
                             if (item.genre.isNotEmpty()) Text(item.genre, color = C.muted, fontSize = 13.sp, maxLines = 2,
@@ -128,6 +133,7 @@ fun DetailsScreen(model: AppModel, item: Item) {
             }
         }
         item {
+            watch()  // relit l'état ici (voir watch)
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (item.kind == "movie") {
@@ -159,7 +165,7 @@ fun DetailsScreen(model: AppModel, item: Item) {
                     AppButton("Lire depuis le début", { model.open(Screen.Player(item, listOf(item), resume = false)) },
                         Modifier.fillMaxWidth(), icon = Icons.Filled.Replay)
                 if (item.kind == "movie") job(item.key)?.let { j -> DownloadState(j) }
-                val plot = item.plot.ifEmpty { error }
+                val plot = item.plot.ifEmpty { error }.ifEmpty { if (loaded == 0) "Chargement du descriptif…" else "" }
                 if (plot.isNotEmpty()) Text(plot, color = C.text, fontSize = 14.sp, maxLines = if (plotOpen) 40 else 4,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.clickable { plotOpen = !plotOpen })
                 if (item.director.isNotEmpty() || item.cast.isNotEmpty()) Text(
@@ -172,6 +178,7 @@ fun DetailsScreen(model: AppModel, item: Item) {
         }
         if (item.kind == "series" && eps.isNotEmpty()) {
             item {
+                watch()  // relit l'état ici (voir watch)
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(seasons) { s ->
                         FilterChip(selected = s == season, onClick = { season = s }, label = { Text("Saison $s") },
@@ -330,6 +337,12 @@ private fun PrefChip(label: String, selected: Boolean, onClick: () -> Unit) {
         border = FilterChipDefaults.filterChipBorder(true, selected, borderColor = C.line, selectedBorderColor = C.accent))
 }
 
+/** Heure « 14:05 » d'un horodatage en secondes. */
+private fun hhmm(sec: Long): String = java.text.SimpleDateFormat("HH:mm", java.util.Locale.FRANCE).format(java.util.Date(sec * 1000))
+
+/** Titre seul d'un programme (son nom commence par l'horaire et peut finir par « (en cours) »). */
+private fun programTitle(p: Item): String = p.name.substringAfter("  ", p.name).removeSuffix("  (en cours)").trim()
+
 /** Replays d'une chaîne : programmes passés, du plus récent au plus ancien, filtrés par jour. */
 @Composable
 fun ProgramsScreen(model: AppModel, channel: Item) {
@@ -366,12 +379,28 @@ fun ProgramsScreen(model: AppModel, channel: Item) {
                             border = FilterChipDefaults.filterChipBorder(true, d == day, borderColor = C.line, selectedBorderColor = C.accent))
                     }
                 }
-                LazyColumn(Modifier.navigationBarsPadding(), contentPadding = PaddingValues(bottom = 16.dp)) {
+                val now = System.currentTimeMillis() / 1000
+                LazyColumn(Modifier.navigationBarsPadding(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(list.filter { it.group == day }, key = { it.key }) { p ->
-                        Column(Modifier.fillMaxWidth().clickable { model.open(Screen.Player(p, list, resume = false)) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp)) {
-                            Text(p.name, color = C.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (p.plot.isNotEmpty()) Text(p.plot, color = C.muted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        // Comme sur PC : heure de début en grand, fin, titre, durée / en cours, 2 lignes de résumé
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(C.surface)
+                            .clickable { model.open(Screen.Player(p, list, resume = false)) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            Column(Modifier.width(58.dp)) {
+                                Text(hhmm(p.start), color = C.accentHi, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                Text(hhmm(p.end), color = C.muted, fontSize = 12.sp)
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(programTitle(p), color = C.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Row {
+                                    Text(p.duration, color = C.muted, fontSize = 12.sp)
+                                    if (p.end > now) Text("  ·  ● en cours", color = C.live, fontSize = 12.sp)
+                                }
+                                if (p.plot.isNotEmpty()) Text(p.plot, color = C.muted, fontSize = 12.sp, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp))
+                            }
                         }
                     }
                 }

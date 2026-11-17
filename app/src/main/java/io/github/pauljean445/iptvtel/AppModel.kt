@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.pauljean445.iptvtel.data.ImdbBase
 import io.github.pauljean445.iptvtel.data.CatalogCache
 import io.github.pauljean445.iptvtel.data.Cloud
 import io.github.pauljean445.iptvtel.data.Item
@@ -96,6 +97,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     lateinit var library: Library
     /** Change à chaque modification des favoris / reprises : les écrans qui le lisent se redessinent. */
     var libVersion by mutableIntStateOf(0); private set
+    /** Lecture en petite fenêtre (image dans l'image) : le lecteur n'affiche que la vidéo. */
+    var inPip by mutableStateOf(false)
     var source: Source? = null; private set
     var client: XtreamClient? = null; private set
     var catalog by mutableStateOf<Catalog?>(null); private set
@@ -103,10 +106,27 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     /** Affiche le catalogue, puis prépare en tâche de fond les noms pour la recherche (première recherche fluide). */
     private fun showCatalog(c: Catalog) {
+        ImdbBase.init(getApplication<Application>().filesDir)
+        ImdbBase.apply(c.byKey.values)
         catalog = c
+        refreshImdb()
         normJob?.cancel()
         normJob = viewModelScope.launch(Dispatchers.Default) { c.byKey.values.forEach { it.norm } }
     }
+    /** Base IMDb commune (remplie par le PC) : relue au plus toutes les 6 h ; nouvelles notes -> écrans redessinés. */
+    private fun refreshImdb() {
+        if (!cloud.signedIn || !ImdbBase.pullDue()) return
+        viewModelScope.launch {
+            val keys = catalog?.byKey?.values?.map { ImdbBase.keyOf(it) }.orEmpty()
+            val changed = try { withContext(Dispatchers.IO) { ImdbBase.pull(cloud, keys) } } catch (e: Exception) { false }
+            val c = catalog
+            if (changed && c != null) {
+                ImdbBase.apply(c.byKey.values)
+                catalog = Catalog(c.byKey.values.toList())
+            }
+        }
+    }
+
     var catalogError by mutableStateOf(""); private set
     var catalogLoading by mutableStateOf(false); private set
     var toast by mutableStateOf("")
@@ -484,6 +504,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 syncOnce(pid, withRoot = round % SYNC_ROOT_EVERY == 0)
                 round++
                 delay(SYNC_MS)
+                refreshImdb()
             }
         }
     }

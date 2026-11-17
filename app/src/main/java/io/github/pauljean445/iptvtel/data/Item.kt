@@ -30,6 +30,11 @@ class Item(
     var parent: Item? = null,         // épisode -> série ; programme -> chaîne
     var episodes: List<Item>? = null, // série : épisodes (null = pas encore chargés)
     var infoLoaded: Boolean = false,  // descriptif détaillé déjà récupéré
+    var tmdb: String = "",            // numéro TMDB (fournisseur) : clé de la base IMDb commune
+    var imdbId: String = "",
+    var imdbRating: String = "",      // note IMDb (base commune)
+    var runtime: Int = 0,             // durée en minutes (base commune)
+    var imdbYear: Int = 0,            // année de sortie (base commune)
 ) {
     val groupLabel: String get() = group.ifEmpty { "Sans groupe" }
 
