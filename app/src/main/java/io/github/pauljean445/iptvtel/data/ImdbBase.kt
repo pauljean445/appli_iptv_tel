@@ -52,14 +52,19 @@ object ImdbBase {
         lastPull = System.currentTimeMillis()
         if (changed) file?.let { f -> try { writeObj(f, LinkedHashMap<String, Any?>(entries)) } catch (e: Exception) { } }
         val missing = catalogKeys.filter { it.isNotEmpty() && !entries.containsKey(it) && it !in requested }.distinct()
-        for ((shard, keys) in missing.groupBy { "s%02d".format(it.drop(1).toLong() % SHARDS) }) {
-            for (chunk in keys.chunked(1000)) {
-                cloud.commit(listOf(Cloud.Write("imdb_req/$shard", chunk.associateWith { "" })), timeoutSec = 30)
-                requested += chunk
+        try {
+            for ((shard, keys) in missing.groupBy { "s%02d".format(it.drop(1).toLong() % SHARDS) }) {
+                for (chunk in keys.chunked(1000)) {
+                    cloud.commit(listOf(Cloud.Write("imdb_req/$shard", chunk.associateWith { "" })), timeoutSec = 30)
+                    requested += chunk
+                }
             }
-        }
-        if (missing.isNotEmpty()) reqFile?.let { f ->
-            try { writeObj(f, mapOf("keys" to synchronized(requested) { requested.toList() })) } catch (e: Exception) { }
+        } catch (e: Exception) {
+            lastPull = 0L  // coupure : on reprend au passage suivant (synchro, 30 s), là où on en était
+        } finally {
+            if (missing.isNotEmpty()) reqFile?.let { f ->
+                try { writeObj(f, mapOf("keys" to synchronized(requested) { requested.toList() })) } catch (e: Exception) { }
+            }
         }
         return changed
     }
