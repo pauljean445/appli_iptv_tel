@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -380,7 +381,7 @@ fun ProgramsScreen(model: AppModel, channel: Item) {
                     }
                 }
                 val now = System.currentTimeMillis() / 1000
-                LazyColumn(Modifier.navigationBarsPadding(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
+                key(day) { LazyColumn(Modifier.navigationBarsPadding(), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(list.filter { it.group == day }, key = { it.key }) { p ->
                         // Comme sur PC : heure de début en grand, fin, titre, durée / en cours, 2 lignes de résumé
@@ -403,7 +404,7 @@ fun ProgramsScreen(model: AppModel, channel: Item) {
                             }
                         }
                     }
-                }
+                } }
             }
         }
     }

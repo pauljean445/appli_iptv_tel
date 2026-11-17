@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -138,7 +139,7 @@ fun BrowseContent(model: AppModel, mainTab: String) {
                 RECENT -> "Rien en cours pour le moment."
                 else -> "Aucune entrée dans cette catégorie."
             }, color = C.muted, fontSize = 14.sp, modifier = Modifier.padding(16.dp))
-        } else if (tab == "live" || tab == "replay") {
+        } else if (tab == "live" || tab == "replay") key(tab, group) {  // autre catégorie : liste repartie du haut
             LazyColumn(contentPadding = PaddingValues(start = 12.dp, end = 4.dp, bottom = 16.dp)) {
                 items(items, key = { it.key }) { it ->
                     ChannelRow(it, if (tab == "replay") "${it.groupLabel} · replay ${it.archiveDays} j" else it.groupLabel,
@@ -146,7 +147,7 @@ fun BrowseContent(model: AppModel, mainTab: String) {
                         onStar = { model.toggleFavorite(tab, it) }, onLongClick = { actionsFor = it })
                 }
             }
-        } else {
+        } else key(tab, group) {  // autre catégorie : mosaïque repartie du haut
             LazyVerticalGrid(GridCells.Adaptive(104.dp), contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(items, key = { it.key }) { it ->

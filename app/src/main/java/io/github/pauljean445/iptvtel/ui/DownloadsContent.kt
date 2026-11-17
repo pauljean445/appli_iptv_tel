@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -158,7 +159,7 @@ fun DownloadsContent(model: AppModel) {
         return
     }
 
-    LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    key(filter) { LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
             Text("${fmtSize(Downloads.usedBytes())} utilisés · ${fmtSize(free)} libres · dossier Films/IPTV Player",
                 color = C.muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
@@ -220,7 +221,7 @@ fun DownloadsContent(model: AppModel) {
                 else ShowRow(model, group, onOpen = { openShow = j.showKey }, onDelete = { deleting = group })
             }
         }
-    }
+    } }  // key(filter) : autre filtre -> liste repartie du haut
     DeleteDialog(deleting) { deleting = null }
 }
 
