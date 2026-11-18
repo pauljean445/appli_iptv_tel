@@ -21,6 +21,18 @@ import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import io.github.pauljean445.iptvtel.data.ImdbBase
+import io.github.pauljean445.iptvtel.data.num
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -58,8 +70,9 @@ import io.github.pauljean445.iptvtel.download.Downloads
 
 private data class Tab(val key: String, val label: String, val icon: ImageVector)
 
-private val TABS = listOf(Tab("home", "Accueil", Icons.Filled.Home), Tab("live", "Direct", Icons.Filled.LiveTv),
-    Tab("movie", "Films", Icons.Filled.Movie), Tab("series", "Séries", Icons.Filled.VideoLibrary),
+// TV : direct et replays (sélecteur) ; VOD : films et séries (sélecteur) ; Favoris : les quatre
+private val TABS = listOf(Tab("home", "Accueil", Icons.Filled.Home), Tab("fav", "Favoris", Icons.Filled.Star),
+    Tab("live", "TV", Icons.Filled.LiveTv), Tab("vod", "VOD", Icons.Filled.Movie),
     Tab("downloads", "Téléchargés", Icons.Filled.Download))
 
 /** Écran principal : titre, recherche et profil en haut ; onglets dans la barre du bas. */
@@ -98,7 +111,7 @@ fun MainScreen(model: AppModel) {
                                 Icon(t.icon, null)
                             } else Icon(t.icon, null)
                         },
-                        label = { Text(t.label, fontSize = 11.sp, maxLines = 1) },
+                        label = { Text(t.label, fontSize = 10.sp, maxLines = 1, softWrap = false) },  // « Téléchargés » tient sur 5 onglets
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = Color.White, selectedTextColor = C.text,
                             indicatorColor = C.accent, unselectedIconColor = C.muted, unselectedTextColor = C.muted),
                     )
@@ -119,43 +132,61 @@ fun MainScreen(model: AppModel) {
                 }
                 catalog == null -> Message("Chargement du catalogue…")
                 model.tab == "home" -> HomeContent(model)
+                model.tab == "fav" -> FavoritesContent(model)
                 else -> BrowseContent(model, model.tab)
             }
         }
     }
 }
 
-/** Accueil : films et séries en cours, chaînes favorites, replays favoris, derniers téléchargements. */
+/** Vignettes au plus par bande de l'accueil (« Tout voir » pour le reste), comme le PC. */
+const val HOME_MAX = 12
+
+/** Série « finie pour l'instant » : son dernier épisode disponible est vu (ou tous ses épisodes connus) ; elle
+ *  quitte « En cours de lecture » (toujours dans « Vu récemment »), de nouveaux épisodes l'y refont apparaître. */
+fun seriesDone(lib: io.github.pauljean445.iptvtel.data.Library, show: Item): Boolean {
+    val e = lib.recent[show.key].asObj() ?: return false
+    val last = e["last_ep"].str()
+    if (last.isEmpty() || last !in lib.watched) return false
+    val eps = show.episodes.orEmpty()
+    if (eps.isNotEmpty()) return eps.last().key in lib.watched
+    val total = e["total"].num().toLong()
+    return total > 0 && lib.watchedKeys(show.key).size >= total
+}
+
+/** Accueil : les lectures en cours seulement, films puis séries (12 au plus, « Tout voir » ouvre l'onglet VOD sur
+ *  « Vu récemment »). Les favoris ont leur onglet. */
 @Composable
 fun HomeContent(model: AppModel) {
     val catalog = model.catalog ?: return
     val lib = model.library
     @Suppress("UNUSED_VARIABLE") val v = model.libVersion  // redessine après une modification
-    val jobs by Downloads.jobs.collectAsState()
-    var removing by remember { mutableStateOf<Pair<String, Item>?>(null) }
+    var removing by remember { mutableStateOf<Item?>(null) }
 
-    fun channels(tab: String) = lib.favoriteKeys(tab).mapNotNull { catalog.byKey[it] }
-    val movies = lib.recentKeys("movie").mapNotNull { catalog.byKey[it] }
-    val series = lib.recentKeys("series").mapNotNull { catalog.byKey[it] }
-    val downloaded = jobs.filter { it.state == "done" }.sortedByDescending { it.added }.take(20)
+    // Films finis / séries entièrement vues : dans « Vu récemment » seulement
+    val movies = lib.recentKeys("movie").filterNot { lib.isDone(it) }.mapNotNull { catalog.byKey[it] }
+    val series = lib.recentKeys("series").filterNot { lib.isDone(it) }.mapNotNull { catalog.byKey[it] }
+        .filterNot { seriesDone(lib, it) }
+    fun seeAll(tab: String) { model.pendingGroup = tab to RECENT; model.tab = "vod" }
 
-    LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-        item {
-            HomeRow("Films", "en cours", movies.size,
-                empty = "Aucun film en cours. Les films commencés apparaîtront ici.") {
-                items(movies, key = { it.key }) { m ->
+    LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item(key = "title") { BlockTitle("En cours de lecture", Icons.Filled.PlayCircle) }
+        item(key = "movie") {
+            HomeRow("Films", movies.size, empty = "Aucun film en cours. Les films commencés apparaîtront ici.",
+                icon = Icons.Filled.Movie, onSeeAll = { seeAll("movie") }.takeIf { movies.size > HOME_MAX }) {
+                items(movies.take(HOME_MAX), key = { it.key }) { m ->
                     @Suppress("UNUSED_VARIABLE") val v = model.libVersion
                     val pos = lib.position(m.key)
                     PosterTile(m, if (pos > 0) "Reprendre à ${fmtTime(pos)}" else "Commencé", Modifier.width(112.dp),
                         progress = lib.length(m.key).let { if (it > 0) pos.toFloat() / it else -1f },
-                        onClick = { model.open(Screen.Details(m)) }, onLongClick = { removing = "movie" to m })
+                        onClick = { model.open(Screen.Details(m)) }, onLongClick = { removing = m })
                 }
             }
         }
-        item {
-            HomeRow("Séries", "en cours", series.size,
-                empty = "Aucune série en cours. Les séries commencées apparaîtront ici.") {
-                items(series, key = { it.key }) { s ->
+        item(key = "series") {
+            HomeRow("Séries", series.size, empty = "Aucune série en cours. Les séries commencées apparaîtront ici.",
+                icon = Icons.Filled.VideoLibrary, onSeeAll = { seeAll("series") }.takeIf { series.size > HOME_MAX }) {
+                items(series.take(HOME_MAX), key = { it.key }) { s ->
                     @Suppress("UNUSED_VARIABLE") val v = model.libVersion
                     val e = lib.recent[s.key].asObj()
                     val last = e?.get("last_ep").str()
@@ -164,62 +195,117 @@ fun HomeContent(model: AppModel) {
                     PosterTile(s, when {
                         label.isEmpty() -> "En cours"
                         pos > 0 -> "$label · ${fmtTime(pos)}"
-                        last in lib.watchedKeys(s.key) -> "Après $label"
+                        last in lib.watched -> "Après $label"
                         else -> "$label · commencé"
                     }, Modifier.width(112.dp), progress = lib.length(last).let { if (it > 0) pos.toFloat() / it else -1f },
+                        onClick = { model.open(Screen.Details(s)) }, onLongClick = { removing = s })
+                }
+            }
+        }
+    }
+
+    removing?.let { item ->
+        ActionsSheet(item.name, listOf(
+            Action("Retirer des lectures en cours", Icons.Outlined.Delete) { model.removeRecent(item) },
+        ), onDismiss = { removing = null })
+    }
+}
+
+/** Onglet Favoris : bloc VOD (films, séries ; les derniers ajoutés d'abord), puis bloc TV (direct, replays ; dans
+ *  l'ordre des favoris, celui du zapping). */
+@Composable
+fun FavoritesContent(model: AppModel) {
+    val catalog = model.catalog ?: return
+    val lib = model.library
+    @Suppress("UNUSED_VARIABLE") val v = model.libVersion
+    var removing by remember { mutableStateOf<Pair<String, Item>?>(null) }
+
+    fun channels(tab: String) = lib.favoriteKeys(tab).mapNotNull { catalog.byKey[it] }
+    fun vod(tab: String) = lib.favoriteKeys(tab)
+        .sortedByDescending { lib.fav["$tab|$it"].asObj()?.get("t").num() }.mapNotNull { catalog.byKey[it] }
+    val movies = vod("movie")
+    val series = vod("series")
+    val live = channels("live")
+    val replays = channels("replay")
+
+    LazyColumn(contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item(key = "vod") { BlockTitle("VOD", Icons.Filled.Movie) }
+        item(key = "movie") {
+            HomeRow("Films", movies.size, icon = Icons.Filled.Movie,
+                empty = "Aucun film favori. Sur la fiche d'un film : bouton Favori.") {
+                items(movies, key = { it.key }) { m ->
+                    PosterTile(m, ImdbBase.tileText(m), Modifier.width(112.dp), seen = lib.isDone(m.key),
+                        onClick = { model.open(Screen.Details(m)) }, onLongClick = { removing = "movie" to m })
+                }
+            }
+        }
+        item(key = "series") {
+            HomeRow("Séries", series.size, icon = Icons.Filled.VideoLibrary,
+                empty = "Aucune série favorite. Sur la fiche d'une série : bouton Favori.") {
+                items(series, key = { it.key }) { s ->
+                    PosterTile(s, ImdbBase.tileText(s), Modifier.width(112.dp), seen = lib.isDone(s.key),
                         onClick = { model.open(Screen.Details(s)) }, onLongClick = { removing = "series" to s })
                 }
             }
         }
-        item {
-            val live = channels("live")
-            HomeRow("Direct", "chaînes favorites", live.size,
-                empty = "Aucune chaîne favorite. Dans l'onglet Direct, touche l'étoile d'une chaîne pour l'ajouter.") {
+        item(key = "tv") { BlockTitle("TV", Icons.Filled.LiveTv, Modifier.padding(top = 8.dp)) }
+        item(key = "live") {
+            HomeRow("Direct", live.size, icon = Icons.Filled.Tv,
+                empty = "Aucune chaîne favorite. Dans l'onglet TV, touche l'étoile d'une chaîne pour l'ajouter.") {
                 items(live, key = { it.key }) { c ->
                     ChannelTile(c, c.groupLabel, onClick = { model.open(Screen.Player(c, live, resume = false)) },
                         onLongClick = { removing = "live" to c })
                 }
             }
         }
-        val replays = channels("replay")
-        if (replays.isNotEmpty()) item {
-            HomeRow("Replays", "chaînes favorites", replays.size, empty = "") {
+        item(key = "replay") {
+            HomeRow("Replays", replays.size, icon = Icons.Filled.Replay,
+                empty = "Aucune chaîne favorite. Dans l'onglet TV › Replays, touche l'étoile d'une chaîne pour l'ajouter.") {
                 items(replays, key = { it.key }) { c ->
                     ChannelTile(c, "replay ${c.archiveDays} j", onClick = { model.open(Screen.Programs(c)) },
                         onLongClick = { removing = "replay" to c })
                 }
             }
         }
-        if (downloaded.isNotEmpty()) item {
-            HomeRow("Téléchargés", "sur le téléphone", jobs.count { it.state == "done" }, empty = "") {
-                items(downloaded, key = { it.id }) { j ->
-                    val it = j.toItem()
-                    val pos = lib.position(j.key)
-                    PosterTile(it, j.title.substringAfter(" · ", ""), Modifier.width(112.dp),
-                        progress = lib.length(j.key).let { l -> if (l > 0) pos.toFloat() / l else -1f },
-                        badge = Icons.Filled.DownloadDone, onClick = { playDownload(model, j) })
-                }
-            }
-        }
     }
 
-    removing?.let { (kind, item) ->
-        val fav = kind == "live" || kind == "replay"
+    removing?.let { (tab, item) ->
         ActionsSheet(item.name, listOf(
-            if (fav) Action("Retirer des favoris", Icons.Outlined.Delete) { if (lib.isFavorite(kind, item.key)) model.toggleFavorite(kind, item) }
-            else Action("Retirer des lectures en cours", Icons.Outlined.Delete) { model.removeRecent(item) },
+            Action("Retirer des favoris", Icons.Outlined.Delete) {
+                if (lib.isFavorite(tab, item.key)) model.toggleFavorite(tab, item)
+            },
         ), onDismiss = { removing = null })
     }
 }
 
-/** Une bande de l'accueil : titre, puis entrées qui défilent vers la droite (ou un texte si elle est vide). */
+/** Titre d'un bloc (Accueil, Favoris) : icône violette, titre et trait. */
 @Composable
-private fun HomeRow(title: String, sub: String, count: Int, empty: String,
+private fun BlockTitle(title: String, icon: ImageVector, modifier: Modifier = Modifier) {
+    Row(modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = C.accentHi, modifier = Modifier.size(22.dp))
+        Text(title, color = C.text, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(start = 10.dp, end = 12.dp))
+        Box(Modifier.weight(1f).height(1.dp).background(C.line))
+    }
+}
+
+/** Une bande : petit titre gris en capitales (+ nombre, lien « Tout voir » à droite), puis entrées qui défilent vers
+ *  la droite (ou un texte si elle est vide). */
+@Composable
+private fun HomeRow(title: String, count: Int, empty: String, icon: ImageVector? = null, onSeeAll: (() -> Unit)? = null,
                     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     Column {
-        RowTitle(title, if (count > 0) "$sub · $count" else sub, Modifier.padding(horizontal = 16.dp))
-        if (count == 0) Text(empty, color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-        else LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp).height(28.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) Icon(icon, contentDescription = null, tint = C.muted, modifier = Modifier.padding(end = 8.dp).size(16.dp))
+            Text(title.uppercase(), color = C.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+            if (count > 0) Text("  ·  $count", color = C.muted, fontSize = 12.sp)
+            Spacer(Modifier.weight(1f))
+            if (onSeeAll != null) Text("Tout voir ›", color = C.accentHi, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onSeeAll)
+                    .padding(horizontal = 8.dp, vertical = 4.dp))
+        }
+        if (count == 0) Text(empty, color = C.muted, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+        else LazyRow(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top, content = content)
     }
 }

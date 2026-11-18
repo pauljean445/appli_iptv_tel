@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -130,17 +131,27 @@ fun ProgressBar(progress: Float, modifier: Modifier = Modifier) {
     }
 }
 
-/** Affiche de film / série (grilles, bandes) : image 2:3, progression, titre et sous-titre. */
+/** Petite coche mauve en haut à droite d'une image : film / série / épisode vu. */
+@Composable
+fun SeenBadge(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 20.dp) {
+    Box(modifier.padding(4.dp).size(size).background(C.accent, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(androidx.compose.material.icons.Icons.Filled.Check, contentDescription = "Vu", tint = Color.White,
+            modifier = Modifier.size(size * 0.7f))
+    }
+}
+
+/** Affiche de film / série (grilles, bandes) : image 2:3, progression, coche « vu », titre et sous-titre. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PosterTile(item: Item, subtitle: String, modifier: Modifier = Modifier, progress: Float = -1f, badge: ImageVector? = null,
-               onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
+               onClick: () -> Unit, onLongClick: (() -> Unit)? = null, seen: Boolean = false) {
     Column(modifier.clip(RoundedCornerShape(10.dp)).combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp))) {
             ItemImage(item, Modifier.fillMaxSize())
             if (progress >= 0f) ProgressBar(progress, Modifier.align(Alignment.BottomCenter))
+            if (seen) SeenBadge(Modifier.align(Alignment.TopEnd))
             if (badge != null) Icon(badge, contentDescription = null, tint = Color.White,
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(Color(0x99100D22), CircleShape)
+                modifier = Modifier.align(if (seen) Alignment.TopStart else Alignment.TopEnd).padding(4.dp).background(Color(0x99100D22), CircleShape)
                     .padding(3.dp).size(14.dp))
         }
         Text(item.name, color = C.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,

@@ -10,7 +10,8 @@ import java.io.File
  *
  *  fav      : "onglet|clé" -> {"o": ordre, "t"}            (onglets : live, movie, series, replay)
  *  progress : clé film / épisode -> {"pos": ms, "len": ms, "t"}
- *  recent   : clé film / série -> {"kind", "name", "t", "last_ep", "last_label", "total"}
+ *  recent   : clé film / série -> {"kind", "name", "t", "last_ep", "last_label", "total", "done"}
+ *             (done : film fini / série entièrement vue — reste dans « Vu récemment », hors de « En cours »)
  *  watched  : clé épisode vu -> {"s": clé de la série, "t"}
  *  prefs    : clé film / série -> {"audio", "spu", "t"}    (langue et sous-titres choisis)
  *  hidden   : "onglet|catégorie" -> {"t"}                  (catégories masquées, rangées dans « Autres »)
@@ -153,8 +154,9 @@ class Library(val folder: File) {
     fun update(item: Item, pos: Long, length: Long, finished: Boolean) {
         if (!finished && pos <= 0) return
         if (item.kind == "movie") {
-            if (finished) {
-                drop("progress", item.key); drop("recent", item.key)
+            if (finished) {  // fini : reste dans « Vu récemment », marqué vu (hors de « En cours »)
+                drop("progress", item.key)
+                put("recent", item.key, mutableMapOf("kind" to "movie", "name" to item.name, "done" to true))
             } else {
                 if (pos >= MIN_RESUME_MS) put("progress", item.key, mutableMapOf("pos" to pos, "len" to length))
                 put("recent", item.key, mutableMapOf("kind" to "movie", "name" to item.name))
@@ -174,10 +176,32 @@ class Library(val folder: File) {
         entry["last_ep"] = item.key; entry["last_label"] = label; entry["name"] = show.name
         val all = show.episodes.orEmpty().map { it.key }.toSet()
         if (all.isNotEmpty()) entry["total"] = all.size.toLong()
-        if (all.isNotEmpty() && watchedKeys(show.key).containsAll(all)) {
-            drop("recent", show.key)  // toute la série a été vue : retirée de « Vu récemment »
-            all.forEach { drop("progress", it); drop("watched", it) }
-        } else put("recent", show.key, entry)
+        // Toute la série vue : reste dans « Vu récemment », marquée vue (épisodes vus gardés)
+        if (all.isNotEmpty() && watchedKeys(show.key).containsAll(all)) entry["done"] = true else entry.remove("done")
+        put("recent", show.key, entry)
+    }
+
+    /** Film fini / série entièrement vue (bouton « Déjà vu » ou lecture jusqu'au bout). */
+    fun isDone(key: String): Boolean = recent[key].asObj()?.get("done") == true
+
+    /** « Déjà vu » : le film (ou tous les épisodes connus de la série) passe en vu, dans « Vu récemment ». */
+    fun markDone(item: Item) {
+        if (item.kind == "movie") {
+            drop("progress", item.key)
+            put("recent", item.key, mutableMapOf("kind" to "movie", "name" to item.name, "done" to true))
+        } else {
+            val eps = item.episodes.orEmpty()
+            if (eps.isEmpty()) return
+            eps.forEach { e ->
+                drop("progress", e.key)
+                if (e.key !in watched) put("watched", e.key, mutableMapOf("s" to item.key))
+            }
+            val last = eps.last()
+            val label = if (last.season > 0 || last.episode > 0) "S%02dE%02d".format(last.season, last.episode) else last.name
+            put("recent", item.key, mutableMapOf("kind" to "series", "name" to item.name, "last_ep" to last.key,
+                "last_label" to label, "total" to eps.size.toLong(), "done" to true))
+        }
+        save()
     }
 
     fun recentKeys(kind: String): List<String> =

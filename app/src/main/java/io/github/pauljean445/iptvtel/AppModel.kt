@@ -83,6 +83,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun back(): Boolean { if (stack.size <= 1) return false; stack.removeAt(stack.lastIndex); return true }
     /** Onglet de l'écran principal (barre du bas). */
     var tab by mutableStateOf("home")
+    /** « Tout voir » de l'accueil : (films / séries, catégorie) à ouvrir dans l'onglet VOD. */
+    var pendingGroup: Pair<String, String>? = null
     /** Revient à l'écran principal, sur cet onglet. */
     fun showTab(t: String) {
         tab = t
@@ -485,6 +487,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun removeRecent(item: Item) {
         library.removeRecent(item.key, item.episodes.orEmpty().map { it.key })
+        libraryChanged()
+    }
+
+    /** Bouton « Déjà vu » de la fiche : film (ou toute la série) marqué vu, dans « Vu récemment » ; done = false :
+     *  retiré des vus (retiré de « Vu récemment », épisodes vus oubliés). */
+    fun setDone(item: Item, done: Boolean) {
+        if (done) library.markDone(item) else library.removeRecent(item.key, item.episodes.orEmpty().map { it.key })
         libraryChanged()
     }
 

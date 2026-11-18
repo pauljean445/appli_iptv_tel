@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
@@ -154,6 +155,13 @@ fun DetailsScreen(model: AppModel, item: Item) {
                     }
                     val fav = lib.isFavorite(tab, item.key)
                     AppButton("", { model.toggleFavorite(tab, item) }, icon = if (fav) Icons.Filled.Star else Icons.Filled.StarBorder)
+                    // « Déjà vu » : film / série vus ailleurs (ou hors ligne) -> dans « Vu récemment », hors de « En cours »
+                    val done = lib.isDone(item.key)
+                    AppButton("", {
+                        model.setDone(item, !done)
+                        model.toast = if (done) "${item.name} : retiré des vus" else "${item.name} : marqué comme vu"
+                    }, enabled = item.kind == "movie" || eps.isNotEmpty(),
+                        icon = if (done) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle)
                     val dl = if (item.kind == "movie") job(item.key) else null
                     AppButton("", {
                         if (item.kind == "series") downloadMenu = true
@@ -245,16 +253,13 @@ private fun EpisodeRow(model: AppModel, ep: Item, job: DlJob?, onClick: () -> Un
         Box(Modifier.size(width = 112.dp, height = 63.dp).clip(RoundedCornerShape(6.dp))) {
             ItemImage(ep, Modifier.fillMaxSize())
             if (pos > 0 && len > 0) ProgressBar(pos.toFloat() / len, Modifier.align(Alignment.BottomCenter))
+            if (lib.isWatched(ep)) SeenBadge(Modifier.align(Alignment.TopEnd), size = 18.dp)
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text("${ep.episodeCode} · ${ep.name}", color = C.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val status = when {
-                lib.isWatched(ep) -> "✓ Vu"
-                pos > 0 -> "En cours · ${fmtTime(pos)}"
-                else -> ep.duration
-            }
-            if (status.isNotEmpty()) Text(status, color = if (lib.isWatched(ep) || pos > 0) C.accentHi else C.muted, fontSize = 12.sp)
+            val status = if (pos > 0) "En cours · ${fmtTime(pos)}" else ep.duration
+            if (status.isNotEmpty()) Text(status, color = if (pos > 0) C.accentHi else C.muted, fontSize = 12.sp)
         }
         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
             when (job?.state) {

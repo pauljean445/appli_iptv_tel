@@ -98,11 +98,11 @@ fun SearchScreen(model: AppModel) {
                 }
                 if (films.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { RowTitle("Films", "${films.size}", Modifier.padding(top = 8.dp)) }
-                    items(films, key = { it.key }) { m -> PosterTile(m, sub(m), onClick = { model.open(Screen.Details(m)) }) }
+                    items(films, key = { it.key }) { m -> PosterTile(m, sub(m), seen = model.library.isDone(m.key), onClick = { model.open(Screen.Details(m)) }) }
                 }
                 if (series.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { RowTitle("Séries", "${series.size}", Modifier.padding(top = 8.dp)) }
-                    items(series, key = { it.key }) { s -> PosterTile(s, sub(s), onClick = { model.open(Screen.Details(s)) }) }
+                    items(series, key = { it.key }) { s -> PosterTile(s, sub(s), seen = model.library.isDone(s.key), onClick = { model.open(Screen.Details(s)) }) }
                 }
             }
         }

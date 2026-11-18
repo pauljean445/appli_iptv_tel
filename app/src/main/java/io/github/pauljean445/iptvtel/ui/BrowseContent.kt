@@ -63,16 +63,26 @@ const val FAV = "\u0000fav"
 const val RECENT = "\u0000recent"
 const val ALL = ""
 
-/** Onglets Direct (avec Replays) / Films / Séries : catégories en puces, puis liste (chaînes) ou grille (affiches). */
+/** Onglets TV (direct / replays) et VOD (films / séries) : sélecteur, catégories en puces, puis liste (chaînes) ou
+ *  grille (affiches). La catégorie ★ Favoris n'est plus en puce (onglet Favoris) : rangée dans « Autres ». */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseContent(model: AppModel, mainTab: String) {
     val catalog = model.catalog ?: return
     val lib = model.library
     @Suppress("UNUSED_VARIABLE") val v = model.libVersion
-    var liveMode by rememberSaveable { mutableStateOf("live") }  // onglet Direct : « En direct » ou « Replays »
-    val tab = if (mainTab == "live") liveMode else mainTab
-    var group by rememberSaveable(tab) { mutableStateOf(if (lib.favoriteKeys(tab).isNotEmpty()) FAV else ALL) }
+    var liveMode by rememberSaveable { mutableStateOf("live") }  // onglet TV : « En direct » ou « Replays »
+    var vodMode by rememberSaveable { mutableStateOf("movie") }  // onglet VOD : « Films » ou « Séries »
+    // « Tout voir » de l'accueil : films / séries, sur « Vu récemment »
+    val pending = model.pendingGroup
+    if (pending != null && mainTab == "vod" && vodMode != pending.first) vodMode = pending.first
+    val tab = when (mainTab) { "live" -> liveMode; "vod" -> vodMode; else -> mainTab }
+    val asked = pending?.takeIf { it.first == tab }?.second
+    var group by rememberSaveable(tab) { mutableStateOf(asked ?: ALL) }
+    if (asked != null) {
+        model.pendingGroup = null
+        group = asked
+    }
     var actionsFor by remember { mutableStateOf<Item?>(null) }
     var groupActions by remember { mutableStateOf<String?>(null) }  // catégorie : masquer / réafficher
     var allGroups by remember { mutableStateOf(false) }
@@ -92,7 +102,6 @@ fun BrowseContent(model: AppModel, mainTab: String) {
     }
     val groups = remember(catalog, tab, hiddenGroups) {
         buildList {
-            add(FAV to "★ Favoris")
             if (tab == "movie" || tab == "series") add(RECENT to "Vu récemment")
             add(ALL to "Toutes")
             catalog.groups[tab].orEmpty().filter { it !in hiddenGroups }.forEach { add(it to it) }
@@ -100,8 +109,9 @@ fun BrowseContent(model: AppModel, mainTab: String) {
     }
     val chips = remember(groups, group) {
         // La catégorie choisie dans la liste complète reste visible en puce, juste après « Toutes »
+        val n = if (tab == "movie" || tab == "series") 2 else 1
         if (groups.any { it.first == group }) groups
-        else groups.take(if (tab == "movie" || tab == "series") 3 else 2) + (group to group) + groups.drop(if (tab == "movie" || tab == "series") 3 else 2)
+        else groups.take(n) + (group to if (group == FAV) "★ Favoris" else group) + groups.drop(n)
     }
 
     fun open(it: Item) = when (tab) {
@@ -111,9 +121,15 @@ fun BrowseContent(model: AppModel, mainTab: String) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        if (mainTab == "live") SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 6.dp)) {
-            listOf("live" to "En direct", "replay" to "Replays").forEachIndexed { i, (key, label) ->
-                SegmentedButton(selected = liveMode == key, onClick = { liveMode = key }, shape = SegmentedButtonDefaults.itemShape(i, 2),
+        val modes = when (mainTab) {
+            "live" -> listOf("live" to "En direct", "replay" to "Replays")
+            "vod" -> listOf("movie" to "Films", "series" to "Séries")
+            else -> emptyList()
+        }
+        if (modes.isNotEmpty()) SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 6.dp)) {
+            modes.forEachIndexed { i, (key, label) ->
+                SegmentedButton(selected = tab == key, onClick = { if (mainTab == "live") liveMode = key else vodMode = key },
+                    shape = SegmentedButtonDefaults.itemShape(i, 2),
                     colors = SegmentedButtonDefaults.colors(activeContainerColor = C.accent, activeContentColor = Color.White,
                         inactiveContainerColor = C.bg, inactiveContentColor = C.muted)) { Text(label) }
             }
@@ -155,14 +171,14 @@ fun BrowseContent(model: AppModel, mainTab: String) {
                     val pos = if (tab == "movie") lib.resumePosition(it.key) else 0L
                     val len = if (tab == "movie") lib.length(it.key) else 0L
                     val sub = ImdbBase.tileText(it)
-                    PosterTile(it, sub, progress = if (pos > 0 && len > 0) pos.toFloat() / len else -1f,
+                    PosterTile(it, sub, progress = if (pos > 0 && len > 0) pos.toFloat() / len else -1f, seen = lib.isDone(it.key),
                         onClick = { open(it) }, onLongClick = { actionsFor = it })
                 }
             }
         }
     }
 
-    if (allGroups) GroupsSheet(groups, hiddenGroups, group, onPick = { group = it; allGroups = false },
+    if (allGroups) GroupsSheet(groups, listOf(FAV) + hiddenGroups, group, onPick = { group = it; allGroups = false },
         onLongClick = { groupActions = it }, onDismiss = { allGroups = false })
 
     groupActions?.let { g ->
@@ -226,7 +242,8 @@ private fun GroupsSheet(groups: List<Pair<String, String>>, hidden: List<String>
                         onClick = { othersOpen = !othersOpen }, onLongClick = null)
                 }
                 if (othersOpen) items(hidden, key = { "\u0000h:$it" }) { g ->
-                    GroupLine("     $g", g == current, muted = true, onClick = { onPick(g) }, onLongClick = { onLongClick(g) })
+                    GroupLine("     " + if (g == FAV) "★ Favoris" else g, g == current, muted = true, onClick = { onPick(g) },
+                        onLongClick = if (g == FAV) null else ({ onLongClick(g) }))
                 }
             }
         }
